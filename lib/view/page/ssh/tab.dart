@@ -2,12 +2,12 @@ import 'package:fl_lib/fl_lib.dart';
 import 'package:flutter/material.dart';
 import 'package:icons_plus/icons_plus.dart';
 import 'package:provider/provider.dart';
-import 'package:toolbox/core/extension/context/locale.dart';
-import 'package:toolbox/core/route.dart';
-import 'package:toolbox/data/model/server/server_private_info.dart';
-import 'package:toolbox/data/provider/server.dart';
-import 'package:toolbox/data/res/provider.dart';
-import 'package:toolbox/view/page/ssh/page.dart';
+import 'package:server_box/core/extension/context/locale.dart';
+import 'package:server_box/core/route.dart';
+import 'package:server_box/data/model/server/server_private_info.dart';
+import 'package:server_box/data/provider/server.dart';
+import 'package:server_box/data/res/provider.dart';
+import 'package:server_box/view/page/ssh/page.dart';
 
 class SSHTabPage extends StatefulWidget {
   const SSHTabPage({super.key});
@@ -96,6 +96,7 @@ class _SSHTabPageState extends State<SSHTabPage>
 
   Widget _buildAddPage() {
     return Center(
+      key: const Key('sshTabAddServer'),
       child: Consumer<ServerProvider>(builder: (_, pro, __) {
         if (pro.serverOrder.isEmpty) {
           return Center(
@@ -105,21 +106,27 @@ class _SSHTabPageState extends State<SSHTabPage>
             ),
           );
         }
-        return ListView.builder(
+        return GridView.builder(
           padding: const EdgeInsets.all(7),
           itemBuilder: (_, idx) {
             final spi = Pros.server.pick(id: pro.serverOrder[idx])?.spi;
             if (spi == null) return UIs.placeholder;
             return CardX(
               child: ListTile(
+                contentPadding: const EdgeInsets.only(left: 17, right: 7),
                 title: Text(spi.name),
-                subtitle: Text(spi.id, style: UIs.textGrey),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _onTapInitCard(spi),
-              ),
+              ).center(),
             );
           },
           itemCount: pro.servers.length,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            childAspectRatio: 3,
+            crossAxisSpacing: 3,
+            mainAxisSpacing: 3,
+          ),
         );
       }),
     );
