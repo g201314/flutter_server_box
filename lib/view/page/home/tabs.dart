@@ -1,0 +1,127 @@
+part of '../home.dart';
+
+/// Which tab is open: the pages the tabs are, moving between them, and
+/// where the app was left.
+extension _HomePageTabs on _HomePageState {
+  /// Every tab's page, kept alive under the settings: the first page of
+  /// [_HomePageSettings._buildArea]'s navigator, which lays out and ticks
+  /// only what is on screen.
+  Widget _buildTabPages() {
+    return PageView.builder(
+      controller: _pageController,
+      itemCount: _tabs.length,
+      physics: const NeverScrollableScrollPhysics(),
+      // Each tab keeps its own stack, so a page opened inside one — a
+      // server's details, its files — covers the tab and not the window.
+      // The bar or rail that got you here stays put, and coming back to a
+      // tab returns you to where you were in it.
+      //
+      // Only the tab on screen may hold focus. A hidden one kept in the
+      // scopes' history is otherwise where focus falls back to.
+      itemBuilder: (_, index) => ValueListenableBuilder(
+        key: ValueKey(_tabs[index]),
+        valueListenable: _selectIndex,
+        // Nor take a back: its page is current in its own navigator,
+        // and a back meant for the tab on screen popped it as well.
+        builder: (_, selected, child) => BackScope(
+          enabled: selected == index,
+          child: ExcludeFocus(excluding: selected != index, child: child!),
+        ),
+        child: NestedNavigator(
+          observers: [AgentScreen.tabObserver(_tabs[index])],
+          // The top inset lands on the tab's own content and not on the
+          // navigator around it, which is the whole point: a page pushed
+          // here is a sibling route, outside this `SafeArea`, so it reaches
+          // the top of the window and animates across the status bar.
+          // Wrapping the navigator instead would inset the pushed page too
+          // and put the seam back.
+          //
+          // Here rather than in each tab because a tab is not one shape:
+          // three of them put a `Scaffold` *inside* a pane splitter, so the
+          // splitter's own divider is above any app bar that could have
+          // spent the inset.
+          //
+          // Full screen takes the insets itself, so its black reaches
+          // the window's edges.
+          rootBuilder: (_) => Consumer(
+            child: _tabs[index].page,
+            builder: (_, ref, page) {
+              final whole =
+                  _tabs[index] == AppTab.server &&
+                  ref.watch(serverFullScreenProvider);
+              return SafeArea(
+                bottom: false,
+                top: !whole,
+                left: !whole,
+                right: !whole,
+                child: page!,
+              );
+            },
+          ),
+        ),
+      ),
+      onPageChanged: (value) {
+        if (!_switchingPage) {
+          _selectIndex.value = value;
+          _rememberTab(value);
+        }
+        _syncFullscreenSystemUi();
+      },
+    );
+  }
+
+  /// Files the tab at [index] as where the app was left.
+  ///
+  /// By name. A position stops meaning the same thing the moment the tabs are
+  /// reordered or one is hidden, and the reorder is a setting the user makes
+  /// between launches.
+  void _rememberTab(int index) {
+    if (index < 0 || index >= _tabs.length) return;
+    _lastTab.put(_tabs[index].name);
+  }
+
+  /// Where to reopen, or null to leave it on the first tab.
+  ///
+  /// A name this build cannot place, or a tab since hidden, is nothing to go
+  /// back to rather than a position to clamp.
+  int? _savedTabIndex() {
+    final name = _lastTab.fetch();
+    if (name.isNotEmpty) {
+      final at = _tabs.indexWhere((tab) => tab.name == name);
+      return at < 0 ? null : at;
+    }
+    // TODO: delete with `HistoryStore.homeTabIndex`. An install upgrading from
+    // a build that stored the position has one and no name; reading it once
+    // is what keeps that launch on the tab it was left on.
+    final saved = Stores.history.homeTabIndex.fetch();
+    if (saved < 0 || saved >= _tabs.length) return null;
+    return saved;
+  }
+
+  void _onDestinationSelected(int index) {
+    if (index < 0 || index >= _tabs.length) return;
+    // A tab is a tab even when the settings are the thing on screen: picking
+    // one has to put them away, which is the same move as picking the tab you
+    // were already on — once what they hold agreed to go.
+    if (_settingsOpen) {
+      unawaited(
+        _closeSettings().then((left) {
+          if (left && mounted) _onDestinationSelected(index);
+        }),
+      );
+      return;
+    }
+    if (_selectIndex.value == index) return;
+    _selectIndex.value = index;
+    _rememberTab(index);
+    _switchingPage = true;
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 677),
+      curve: Curves.fastLinearToSlowEaseIn,
+    );
+    Future.delayed(const Duration(milliseconds: 677), () {
+      _switchingPage = false;
+    });
+  }
+}

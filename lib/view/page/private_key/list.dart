@@ -1,106 +1,148 @@
-import 'dart:io';
 import 'dart:async';
-import 'package:after_layout/after_layout.dart';
+import 'dart:io';
+
 import 'package:fl_lib/fl_lib.dart';
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:toolbox/core/extension/context/locale.dart';
-import 'package:toolbox/data/res/store.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:server_box/core/extension/context/locale.dart';
+import 'package:server_box/core/ssh/keygen.dart';
+import 'package:server_box/data/model/server/private_key_info.dart';
+import 'package:server_box/data/provider/private_key.dart';
+import 'package:server_box/data/store/stores.dart';
+import 'package:server_box/view/page/private_key/edit.dart';
+import 'package:server_box/view/page/private_key/generate.dart';
 
-import '../../../core/route.dart';
-import '../../../data/model/server/private_key_info.dart';
-import '../../../data/provider/private_key.dart';
-
-class PrivateKeysListPage extends StatefulWidget {
+class PrivateKeysListPage extends ConsumerStatefulWidget {
   const PrivateKeysListPage({super.key});
 
   @override
-  State<PrivateKeysListPage> createState() => _PrivateKeyListState();
+  ConsumerState<PrivateKeysListPage> createState() => _PrivateKeyListState();
 }
 
-class _PrivateKeyListState extends State<PrivateKeysListPage>
+class _PrivateKeyListState extends ConsumerState<PrivateKeysListPage>
     with AfterLayoutMixin {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: CustomAppBar(
-        title: Text(l10n.privateKey, style: UIs.text18),
-      ),
-      body: _buildBody(),
+      body: SafeArea(child: _buildBody()),
       floatingActionButton: FloatingActionButton(
+        onPressed: _onTapAdd,
         child: const Icon(Icons.add),
-        onPressed: () => AppRoutes.keyEdit().go(context),
       ),
     );
   }
 
   Widget _buildBody() {
-    return Consumer<PrivateKeyProvider>(
-      builder: (_, key, __) {
-        if (key.pkis.isEmpty) {
-          return Center(
-            child: Text(l10n.noSavedPrivateKey),
-          );
-        }
-        return ListView.builder(
-          padding: const EdgeInsets.all(13),
-          itemCount: key.pkis.length,
-          itemBuilder: (context, idx) {
-            final item = key.pkis[idx];
-            return CardX(
-              child: ListTile(
-                leading: Text(
-                  '#$idx',
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                title: Text(item.id),
-                subtitle: Text(item.type ?? l10n.unknown, style: UIs.textGrey),
-                onTap: () => AppRoutes.keyEdit(pki: item).go(context),
-                trailing: const Icon(Icons.edit),
-              ),
-            );
-          },
-        );
-      },
-    );
+    final privateKeyState = ref.watch(privateKeyProvider);
+    final pkis = privateKeyState.keys;
+
+    if (pkis.isEmpty) {
+      return Center(child: Text(libL10n.empty));
+    }
+
+    final children = pkis.map(_buildKeyItem).toList();
+    return PageColumns(children: children);
   }
 
-  void autoAddSystemPriavteKey() {
+  Widget _buildKeyItem(PrivateKeyInfo item) {
+    // Read per build rather than stored: the fingerprint is a function of the
+    // key, and a copy of it in the record would be one more thing that can
+    // disagree with what is actually there. It is a hash of a few hundred
+    // bytes, over a list of a handful of keys.
+    final digest = describeSshKey(item.key);
+    // The stored comment wins, and the key's own is the fallback — which is
+    // what a key imported or generated before anyone edited its label has.
+    // That one is absent for an encrypted key, since it sits inside the part
+    // that gets encrypted while the public key does not. `type` is left for a
+    // key that reads as neither.
+    final lines = [
+      ?digest.fingerprint,
+      ?(item.comment ?? digest.comment),
+      if (digest.isEmpty) item.type ?? libL10n.unknown,
+    ];
+    return ListTile(
+      title: Text(item.name),
+      subtitle: Text(
+        lines.join('\n'),
+        style: UIs.textGrey,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      isThreeLine: lines.length > 1,
+      onTap: () => PrivateKeyEditPage.route.go(
+        context,
+        args: PrivateKeyEditPageArgs(pki: item),
+      ),
+      trailing: const Icon(Icons.edit),
+    ).cardx;
+  }
+
+  @override
+  FutureOr<void> afterFirstLayout(BuildContext context) {
+    _autoAddSystemPriavteKey();
+  }
+}
+
+extension on _PrivateKeyListState {
+  /// Two ways to end up with a key here, asked before either page opens.
+  ///
+  /// The dialog answers with what to do and closes itself; this navigates. A
+  /// button that pushed the page from inside the dialog would be reaching for
+  /// the root navigator the dialog is on, not the one holding this page.
+  Future<void> _onTapAdd() async {
+    final generate = await context.showSheet<bool>(
+      title: libL10n.add,
+      childBuilder: (dialogContext) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.vpn_key),
+            title: Text(l10n.sshKeyGenerate),
+            onTap: () => dialogContext.popSheet(true),
+          ),
+          ListTile(
+            leading: const Icon(Icons.file_open),
+            title: Text(libL10n.import),
+            onTap: () => dialogContext.popSheet(false),
+          ),
+        ],
+      ),
+      actions: const [],
+    );
+    if (generate == null || !mounted) return;
+    if (generate) {
+      unawaited(PrivateKeyGeneratePage.route.go(context));
+    } else {
+      unawaited(PrivateKeyEditPage.route.go(context));
+    }
+  }
+
+  void _autoAddSystemPriavteKey() async {
     // Only trigger on desktop platform and no private key saved
-    if (isDesktop && Stores.snippet.box.keys.isEmpty) {
+    if (isDesktop && Stores.key.keys().isEmpty) {
       final home = Pfs.homeDir;
       if (home == null) return;
       final idRsaFile = File(home.joinPath('.ssh/id_rsa'));
       if (!idRsaFile.existsSync()) return;
       final sysPk = PrivateKeyInfo(
-        id: 'system',
-        key: idRsaFile.readAsStringSync(),
+        id: ShortId.generate(),
+        name: 'system',
+        key: await idRsaFile.readAsString(),
       );
-      context.showRoundDialog(
-        title: l10n.attention,
+      if (!mounted) return;
+      await context.showSheet(
+        title: libL10n.attention,
         child: Text(l10n.addSystemPrivateKeyTip),
-        actions: [
-          TextButton(
-            onPressed: () {
-              context.pop();
-              AppRoutes.keyEdit(pki: sysPk).go(context);
-            },
-            child: Text(l10n.ok),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(l10n.cancel),
-          ),
-        ],
+        actions: Btn.ok(
+          onTap: () {
+            context.popSheet();
+            PrivateKeyEditPage.route.go(
+              context,
+              args: PrivateKeyEditPageArgs(pki: sysPk),
+            );
+          },
+        ).toList,
       );
     }
-  }
-
-  @override
-  FutureOr<void> afterFirstLayout(BuildContext context) {
-    autoAddSystemPriavteKey();
   }
 }

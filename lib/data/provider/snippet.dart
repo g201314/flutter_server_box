@@ -1,22 +1,45 @@
-import 'dart:convert';
-
 import 'package:fl_lib/fl_lib.dart';
-import 'package:flutter/material.dart';
-import 'package:toolbox/data/model/server/snippet.dart';
-import 'package:toolbox/data/res/store.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:server_box/core/sync/sync.dart';
+import 'package:server_box/data/model/server/snippet.dart';
+import 'package:server_box/data/provider/entity_helpers.dart';
+import 'package:server_box/data/store/stores.dart';
 
-class SnippetProvider extends ChangeNotifier {
-  late List<Snippet> _snippets;
-  List<Snippet> get snippets => _snippets;
+part 'snippet.freezed.dart';
+part 'snippet.g.dart';
 
-  final _tags = ValueNotifier(<String>[]);
-  ValueNotifier<List<String>> get tags => _tags;
+@freezed
+abstract class SnippetState with _$SnippetState {
+  const factory SnippetState({
+    @Default(<Snippet>[]) List<Snippet> snippets,
+    @Default(<String>{}) Set<String> tags,
+  }) = _SnippetState;
+}
 
-  void load() {
-    _snippets = Stores.snippet.fetch();
+@Riverpod(keepAlive: true)
+class SnippetNotifier extends _$SnippetNotifier {
+  @override
+  SnippetState build() {
+    final subscription = Stores.snippet.watch().listen((_) => reload());
+    ref.onDispose(subscription.cancel);
+    return _load();
+  }
+
+  void reload() {
+    Stores.snippet.dropCache();
+    final newState = _load();
+    if (newState == state) return;
+    state = newState;
+  }
+
+  SnippetState _load() {
+    final snippets = Stores.snippet.fetch();
     final order = Stores.setting.snippetOrder.fetch();
+
+    List<Snippet> orderedSnippets = snippets;
     if (order.isNotEmpty) {
-      final surplus = _snippets.reorder(
+      final surplus = snippets.reorder(
         order: order,
         finder: (n, name) => n.name == name,
       );
@@ -24,57 +47,59 @@ class SnippetProvider extends ChangeNotifier {
       if (order != Stores.setting.snippetOrder.fetch()) {
         Stores.setting.snippetOrder.put(order);
       }
+      orderedSnippets = snippets;
     }
-    _updateTags();
+
+    final newTags = _computeTags(orderedSnippets);
+    return stateOrNull?.copyWith(snippets: orderedSnippets, tags: newTags) ??
+        SnippetState(snippets: orderedSnippets, tags: newTags);
   }
 
-  void _updateTags() {
-    _tags.value.clear();
+  Set<String> _computeTags(List<Snippet> snippets) {
     final tags = <String>{};
-    for (final s in _snippets) {
-      if (s.tags?.isEmpty ?? true) {
-        continue;
+    for (final s in snippets) {
+      final t = s.tags;
+      if (t != null) {
+        tags.addAll(t);
       }
-      tags.addAll(s.tags!);
     }
-    _tags.value.addAll(tags);
-    _tags.notifyListeners();
+    return tags;
   }
 
   void add(Snippet snippet) {
-    _snippets.add(snippet);
-    Stores.snippet.put(snippet);
-    _updateTags();
-    notifyListeners();
+    final next = entityAdd(Stores.snippet, state.snippets, snippet);
+    state = state.copyWith(snippets: next, tags: _computeTags(next));
   }
 
   void del(Snippet snippet) {
-    _snippets.remove(snippet);
-    Stores.snippet.delete(snippet);
-    _updateTags();
-    notifyListeners();
+    final next = entityDelete(
+      Stores.snippet,
+      state.snippets,
+      snippet,
+      (e) => e.id,
+    );
+    state = state.copyWith(snippets: next, tags: _computeTags(next));
   }
 
+  /// A rename is an update of columns, not a delete and an insert: the two
+  /// carry the same id, and deleting first would tombstone a record that is
+  /// still there and take its tags and auto-run targets with it.
   void update(Snippet old, Snippet newOne) {
-    Stores.snippet.delete(old);
-    Stores.snippet.put(newOne);
-    _snippets.remove(old);
-    _snippets.add(newOne);
-    _updateTags();
-    notifyListeners();
+    final next = entityUpdate(
+      Stores.snippet,
+      state.snippets,
+      old,
+      newOne,
+      (e) => e.id,
+    );
+    state = state.copyWith(snippets: next, tags: _computeTags(next));
   }
 
+  /// One `UPDATE` over the tag rows, rather than rewriting every snippet that
+  /// carries the tag.
   void renameTag(String old, String newOne) {
-    for (final s in _snippets) {
-      if (s.tags?.contains(old) ?? false) {
-        s.tags?.remove(old);
-        s.tags?.add(newOne);
-        Stores.snippet.put(s);
-      }
-    }
-    _updateTags();
-    notifyListeners();
+    Stores.snippet.renameTag(old, newOne);
+    state = _load();
+    bakSync.syncSoon();
   }
-
-  String get export => json.encode(snippets);
 }

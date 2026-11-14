@@ -1,0 +1,253 @@
+/// Opt-in end-to-end test of stopping a command on a real SSH server, over
+/// the client the app uses (dartssh2) and [SshExec] — what the Agent's stop
+/// button pulls (#1684).
+///
+/// Skipped unless `SBM_E2E_SSH_HOST` is set, in the environment or the
+/// workspace-root `.env`: an SSH destination `ssh -G` resolves, on a Linux
+/// host with `setsid` (util-linux) and `bash`. It only runs `sleep` there, and
+/// kills what it started.
+///
+/// - `SBM_E2E_SSH_SUDO_PASSWORD` (optional): the account's sudo password, for
+///   a command left running as root. Read from the environment only; never
+///   printed.
+library;
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
+import 'dart:typed_data';
+
+import 'package:dartssh2/dartssh2.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:server_box/core/ssh/exec.dart';
+import 'package:server_box/data/model/server/server_exec.dart';
+import 'package:server_box/src/rust/api/exec_session.dart' as es;
+
+import '../helpers/rust_lib_helper.dart';
+import '../helpers/ssh_e2e.dart';
+
+Future<void> main() async {
+  final host = e2eEnv('SBM_E2E_SSH_HOST');
+  if (host == null) {
+    test('ssh exec cancel e2e', () {}, skip: 'SBM_E2E_SSH_HOST not set');
+    return;
+  }
+  final prepared = await prepareSshE2e(host);
+  final target = prepared.target;
+  if (target == null) {
+    test(
+      'ssh exec cancel e2e',
+      () => fail(prepared.failure ?? ''),
+      skip: prepared.skip,
+    );
+    return;
+  }
+  final sudoPassword = e2eEnv('SBM_E2E_SSH_SUDO_PASSWORD');
+
+  late SSHClient client;
+  setUpAll(() async {
+    await initRustLibForTest();
+    client = await connectSshE2e(target, prepared.identities);
+  });
+
+  // A duration whose fraction is this run's own, so that `pgrep` and the
+  // teardown's `pkill` match only what this run started — never a `sleep` of
+  // somebody else's on a shared host.
+  final run = List.generate(9, (_) => Random.secure().nextInt(10)).join();
+  final used = <String>[];
+  String sleepFor() {
+    final s = '${600 + used.length}.$run';
+    used.add(s);
+    return s;
+  }
+
+  /// [s] as a `pgrep -x` pattern: the whole command line, `.` meant literally.
+  String exactly(String s) => 'sleep ${s.replaceAll('.', r'\.')}';
+
+  Future<bool> running(String s) async {
+    final r = await execSshE2e(client, 'pgrep -fx "${exactly(s)}"', null);
+    return r.exitCode == 0;
+  }
+
+  tearDownAll(() async {
+    for (final s in used) {
+      await execSshE2e(client, 'pkill -fx "${exactly(s)}"', null);
+    }
+    if (sudoPassword != null) {
+      for (final s in used) {
+        await execSshE2e(
+          client,
+          "sudo -S -p '' pkill -fx '${exactly(s)}'",
+          Uint8List.fromList('$sudoPassword\n'.codeUnits),
+        );
+      }
+    }
+    client.close();
+  });
+
+  /// Runs [command], stops it a second in, once [s] is running.
+  Future<({ExecResult result, Duration took})> stop(
+    String command,
+    String s, {
+    String? stdin,
+    SshExec? exec,
+  }) async {
+    final cancel = Completer<void>();
+    final run = (exec ?? SshExec(client)).run(
+      command,
+      stdin: stdin,
+      cancel: cancel.future,
+    );
+    await Future<void>.delayed(const Duration(seconds: 1));
+    expect(await running(s), isTrue, reason: 'the command started');
+    final watch = Stopwatch()..start();
+    cancel.complete();
+    final result = await run;
+    return (result: result, took: watch.elapsed);
+  }
+
+  // As the login shell reads it, whichever it is: fish takes `\\` in single
+  // quotes for one backslash, bash for two.
+  test('runs as before through the login shell', () async {
+    const command = "printf '%s|' \"a'b\" 'c\\\\d'; echo \$SHELL";
+    final plain = await execSshE2e(client, command, null);
+    final r = await SshExec(client).run(command, cancel: Completer<void>().future);
+    expect(r.stdout, plain.stdout);
+    expect(r.stdout, startsWith("a'b|c"));
+    expect(r.stderr, isNot(contains('sbm-sid')));
+  });
+
+  test('a stop kills the command and returns at once', () async {
+    final s = sleepFor();
+    final r = await stop('sleep $s', s);
+    expect(r.took, lessThan(SshExec.signalGrace));
+    expect(r.result.mayStillRun, isFalse);
+    expect(await running(s), isFalse, reason: 'SIGKILL reached it');
+  });
+
+  test('a stop before the session is known still stops it', () async {
+    final s = sleepFor();
+    final cancel = Completer<void>()..complete();
+    final r = await SshExec(client).run('sleep $s', cancel: cancel.future);
+    expect(r.mayStillRun, isFalse);
+    expect(await running(s), isFalse);
+  });
+
+  test(
+    'a stop kills a child in a process group of its own',
+    () async {
+      // Job control puts the child in a group of its own: SIGKILL to the
+      // command's group misses it, and sshd keeps the channel open while it
+      // holds stdout — the stuck build of #1684. Still in the session.
+      final s = sleepFor();
+      final r = await stop("bash -c 'set -m; sleep $s & wait'", s);
+      expect(r.result.mayStillRun, isFalse);
+      expect(await running(s), isFalse, reason: 'killed by its session');
+      expect(r.took, lessThan(SshExec.drainTimeout + SshExec.signalGrace));
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  test(
+    'a stop kills a child that let go of the output',
+    () async {
+      // Out of the signal's reach and holding nothing open, so the channel
+      // closes at once: only the session id still finds it.
+      final s = sleepFor();
+      final r = await stop(
+        "bash -c 'set -m; sleep $s </dev/null >/dev/null 2>&1 & wait'",
+        s,
+      );
+      expect(r.result.mayStillRun, isFalse);
+      expect(await running(s), isFalse, reason: 'killed by its session');
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  test(
+    'a stop says so when a process has left the session',
+    () async {
+      // `setsid -w` waits for a child in a session of its own: out of every
+      // reach, so all a stop can do is not wait for it, and say so.
+      final s = sleepFor();
+      final r = await stop('echo started; setsid -w sleep $s', s);
+      expect(r.took, lessThan(const Duration(seconds: 20)));
+      expect(r.result.stdout, contains('started'));
+      expect(r.result.mayStillRun, isTrue);
+      expect(await running(s), isTrue);
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  group('a session id read off stderr', () {
+    /// The session of a `sleep` started on a channel of its own.
+    Future<({int sid, String s})> session(
+      String prefix, {
+      String? stdin,
+    }) async {
+      final s = sleepFor();
+      final channel = await client.execute('${prefix}sleep $s');
+      if (stdin != null) channel.stdin.add(utf8.encode(stdin));
+      await Future<void>.delayed(const Duration(seconds: 1));
+      // Through `sh`: the login shell may be fish.
+      final r = await execSshE2e(
+        client,
+        'sh -c \'ps -o sid= -p \$(pgrep -fx "${exactly(s)}")\'',
+        null,
+      );
+      return (sid: int.parse(r.stdout.trim()), s: s);
+    }
+
+    test('is not taken for a session this run did not start', () async {
+      final v = await session('');
+      final r = await execSshE2e(
+        client,
+        es.execSessionOwnsCommand(id: v.sid, nonce: '0dd0'),
+        null,
+      );
+      expect(r.stdout, isNot(contains(es.execSessionOwned())));
+    });
+
+    test('is taken for the session this run started', () async {
+      final v = await session('env ${es.execSessionEnvName()}=7e57 ');
+      final r = await execSshE2e(
+        client,
+        es.execSessionOwnsCommand(id: v.sid, nonce: '7e57'),
+        null,
+      );
+      expect(r.stdout, contains(es.execSessionOwned()));
+    });
+
+    // Even one carrying the nonce: what runs as root is not the account's to
+    // read.
+    test('is not taken for a root session', () async {
+      final v = await session(
+        "sudo -S -p '' env ${es.execSessionEnvName()}=b00b ",
+        stdin: '$sudoPassword\n',
+      );
+      final r = await execSshE2e(
+        client,
+        es.execSessionOwnsCommand(id: v.sid, nonce: 'b00b'),
+        null,
+      );
+      expect(r.stdout, isNot(contains(es.execSessionOwned())));
+    }, skip: sudoPassword == null ? 'SBM_E2E_SSH_SUDO_PASSWORD not set' : null);
+  });
+
+  test(
+    'a stop kills what runs as root through sudo',
+    () async {
+      final s = sleepFor();
+      final r = await stop(
+        "sudo -S -p '' sleep $s",
+        s,
+        stdin: '$sudoPassword\n',
+        exec: SshExec(client, sudoPassword: () => sudoPassword),
+      );
+      expect(r.result.mayStillRun, isFalse);
+      expect(await running(s), isFalse);
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+    skip: sudoPassword == null ? 'SBM_E2E_SSH_SUDO_PASSWORD not set' : null,
+  );
+}

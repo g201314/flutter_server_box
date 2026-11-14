@@ -1,282 +1,774 @@
 import 'package:fl_lib/fl_lib.dart';
-import 'package:flutter/material.dart';
-import 'package:icons_plus/icons_plus.dart';
-import 'package:provider/provider.dart';
-import 'package:toolbox/core/extension/context/locale.dart';
-import 'package:toolbox/core/route.dart';
-import 'package:toolbox/data/model/server/server_private_info.dart';
-import 'package:toolbox/data/provider/server.dart';
-import 'package:toolbox/data/res/provider.dart';
-import 'package:toolbox/view/page/ssh/page.dart';
+import 'package:fl_tty/fl_tty.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:server_box/core/extension/context/inset.dart';
+import 'package:server_box/core/extension/context/locale.dart';
+import 'package:server_box/data/model/app/feature.dart';
+import 'package:server_box/data/model/app/tab.dart';
+import 'package:server_box/data/model/server/server_private_info.dart';
+import 'package:server_box/data/model/server/snippet.dart';
+import 'package:server_box/data/provider/app/session_requests.dart';
+import 'package:server_box/data/provider/app/terminal_shell.dart';
+import 'package:server_box/data/provider/server/all.dart';
+import 'package:server_box/data/provider/workspace.dart';
+import 'package:server_box/data/store/stores.dart';
+import 'package:server_box/data/terminal/terminal_session.dart';
+import 'package:server_box/data/terminal/terminal_source.dart';
+import 'package:server_box/view/agent/screen.dart';
+import 'package:server_box/view/page/server/edit/edit.dart';
+import 'package:server_box/view/page/server/widget/server_side_tile.dart';
+import 'package:server_box/view/page/setting/entry.dart';
+import 'package:server_box/view/page/ssh/page/page.dart';
+import 'package:server_box/view/page/ssh/widget/terminal_status_dot.dart';
+import 'package:server_box/view/page/ssh/widget/terminal_status_sheet.dart';
+import 'package:server_box/view/widget/dist_icon.dart';
+import 'package:server_box/view/widget/marked_title.dart';
+import 'package:server_box/view/widget/pane_settings.dart';
+import 'package:server_box/view/widget/rootfs_install.dart';
 
-class SSHTabPage extends StatefulWidget {
+part 'tab_add.dart';
+part 'tab_sort.dart';
+
+/// Every open terminal, one tab each, plus a picker at the head of the strip.
+class SSHTabPage extends ConsumerStatefulWidget {
   const SSHTabPage({super.key});
 
   @override
-  State<SSHTabPage> createState() => _SSHTabPageState();
+  ConsumerState<SSHTabPage> createState() => _SSHTabPageState();
 }
 
-typedef _TabMap = Map<String, ({Widget page, GlobalKey<SSHPageState>? key})>;
+/// What a terminal tab is, beyond the name, focus and visibility that
+/// [SessionTabsController] already keeps for it.
+///
+/// The page is built once and held rather than rebuilt from this record: a
+/// terminal's state lives in its element, and handing `PageView` a fresh
+/// widget every frame would be leaning on `GlobalKey` to put it back.
+class _SshSession {
+  const _SshSession({
+    required this.page,
+    required this.pageKey,
+    required this.session,
+  });
 
-class _SSHTabPageState extends State<SSHTabPage>
-    with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
-  late final _TabMap _tabMap = {
-    l10n.add: (page: _buildAddPage(), key: null),
-  };
-  final _pageCtrl = PageController();
-  final _fabVN = 0.vn;
-  final _tabRN = RNode();
+  final SSHPage page;
+  final GlobalKey<SSHPageState> pageKey;
+
+  /// The page's terminal session, once the page has been built: a tab is
+  /// built when first visited.
+  final ValueNotifier<TerminalSession?> session;
+
+}
+
+extension on SessionTabsController<_SshSession> {
+  /// What the programs in the session at [index] report about themselves, for
+  /// the strip's sheet: on the server's mark where it has one.
+  Widget? statusOf(int index) {
+    final tab = tabs.elementAtOrNull(index - 1);
+    if (tab == null) return null;
+    final serverId = tab.data.page.args.spi?.id;
+    return sideMark(
+      mark: serverId == null ? null : distIcon(serverId, size: kSideMarkSize),
+      badge: TerminalStatusDot(tab.data.session, ringed: serverId != null),
+    );
+  }
+
+  /// The session at [index] as a row of the rail — see [railRow]. Read again
+  /// whenever a session's programs report something: the bar's colour is
+  /// taken from them here, not listened for.
+  RailRow railOf(int index, ColorScheme scheme) {
+    final tab = tabs[index - 1];
+    final selected = index == this.index;
+    return railRow(
+      serverId: tab.data.page.args.spi?.id,
+      live: true,
+      color: tab.data.session.value?.status.headline?.colorIn(scheme),
+      selected: selected,
+      badge: TerminalStatusDot(
+        tab.data.session,
+        ringed: true,
+        idle: SideMarkDot(selected: selected),
+      ),
+    );
+  }
+
+  /// Rebuilds [builder] whenever what [railOf] reads changes: the tabs, the
+  /// session each one has once its page is built, and what that session's
+  /// programs report. Nested, so each layer subscribes to what the layer
+  /// above has just found — a merge taken once would miss a tab opened, or a
+  /// session started, after it.
+  Widget listenRail(Widget Function() builder) => ListenBuilder(
+    listenable: this,
+    builder: () => ListenBuilder(
+      listenable: Listenable.merge([for (final tab in tabs) tab.data.session]),
+      builder: () => ListenBuilder(
+        listenable: Listenable.merge([
+          for (final tab in tabs) ?tab.data.session.value?.status,
+        ]),
+        builder: builder,
+      ),
+    ),
+  );
+}
+
+class _SSHTabPageState extends ConsumerState<SSHTabPage>
+    with AutomaticKeepAliveClientMixin {
+  // Named for what the page is, a list to pick from: "Add" with a plus read
+  // as a button that did nothing (#1808).
+  late final _sessions = SessionTabsController<_SshSession>(
+    leadingName: libL10n.select,
+  );
+
+  late final VoidCallback _hideFromAgent;
+
+  /// Notified when the picker's sort order changes. That order lives in the
+  /// settings store rather than a provider, so nothing else would tell the
+  /// picker — or the icon on the bar — to rebuild.
+  final _sortVersion = RNode();
+
+  /// The bar's search: what is typed, and whether the bar is a field at all.
+  final _search = InlineSearchController();
+
+  /// The session floating over the tabs, mirrored out of the provider for the
+  /// bar's float button, which is drawn from a listenable.
+  late final ValueNotifier<TerminalSession?> _floating;
+
+  /// The picker, and the button for adding a server to pick from.
+  ///
+  /// A scaffold of its own so the button belongs to the page it acts on,
+  /// wherever that page is shown — the first tab on one screen, the column
+  /// beside the terminals on two.
+  late final _picker = Scaffold(
+    body: _AddPage(
+      sortVersion: Listenable.merge([_sortVersion, _search]),
+      search: _search,
+      onTap: _openServer,
+      onLocal: () => _open(const LocalSource()),
+      onRootfsOpen: _openRootfs,
+      onRootfsAdd: _addRootfs,
+      onRootfsRemove: _removeRootfs,
+      onLongPress: (spi) =>
+          ServerEditPage.route.go(context, args: ServerEditArgs(spi)),
+    ),
+  );
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    _hideFromAgent = AgentScreen.terminal(
+      () => switch (_sessions.current) {
+        final tab? => tab.data.page.args.source,
+        null => null,
+      },
+    );
+    // Here and not lazily: [dispose] touches it, and `ref` is gone by then.
+    _floating = ValueNotifier(ref.read(terminalShellProvider)?.session);
+    Rootfs.removed.addListener(_onRootfsRemoved);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // Here and not only from the listener: a flag set before this tab was
+      // ever built is not a *change* by the time the listener exists, so
+      // nothing would fire and the request would stand for good — after which
+      // asking again would set a value it already had, and change nothing.
+      //
+      // Before the queue, not after it. Both can be standing at once — close
+      // every terminal, then open one from a server's row — and draining them
+      // the other way round closed the terminal that was just asked for.
+      _drainCloseAll();
+      _drainRequests();
+    });
+  }
+
+  @override
+  void dispose() {
+    Rootfs.removed.removeListener(_onRootfsRemoved);
+    _hideFromAgent();
+    _sessions.dispose();
+    _sortVersion.dispose();
+    _search.dispose();
+    _floating.dispose();
+    super.dispose();
+  }
+
+  /// Closes the terminals that were running in a system that has been deleted.
+  ///
+  /// Their shells went with the files they were running from, so leaving the
+  /// tabs up leaves dead terminals nobody asked to keep. Driven by
+  /// `Rootfs.removed` rather than by the delete here, because the settings page
+  /// deletes too and only this page has the tabs.
+  ///
+  /// A member of the class, not of an extension: an extension method's
+  /// tear-off is a new closure each time, so `removeListener` in [dispose]
+  /// matched nothing and every disposed tab stayed on this static notifier.
+  void _onRootfsRemoved() {
+    final id = Rootfs.removed.value;
+    if (id == null || !mounted) return;
+    for (final tab in [..._sessions.tabs]) {
+      final source = tab.data.page.args.source;
+      if (source is! LocalSource || !source.rootfs) continue;
+      // A tab that names no profile was opened in whichever was selected then.
+      // With that one gone the selection has moved, so it cannot be recovered
+      // here — such a tab is left alone rather than closed on a guess, and its
+      // shell reports what it finds.
+      if (source.profileId == id) _closeTab(tab.id);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return Scaffold(
-      appBar: PreferredSizeListenBuilder(
-        listenable: _tabRN,
-        builder: () {
-          return _TabBar(
-            idxVN: _fabVN,
-            map: _tabMap,
-            onTap: _onTapTab,
-            onClose: _onTapClose,
-          );
-        },
-      ),
-      body: _buildBody(),
-      floatingActionButton: ValBuilder(
-        listenable: _fabVN,
-        builder: (idx) {
-          if (idx != 0) return const SizedBox();
-          return FloatingActionButton(
-            heroTag: 'sshAddServer',
-            onPressed: () => AppRoutes.serverEdit().go(context),
-            tooltip: l10n.addAServer,
-            child: const Icon(Icons.add),
-          );
-        },
-      ),
+    ref.listen(terminalRequestsProvider, (_, _) => _drainRequests());
+    ref.listen(terminalCloseAllRequestProvider, (_, _) => _drainCloseAll());
+    ref.listen(
+      terminalShellProvider.select((shell) => shell?.session),
+      (_, session) => _floating.value = session,
     );
-  }
-
-  void _onTapTab(int idx) async {
-    await _toPage(idx);
-    SSHPage.focusNode.unfocus();
-  }
-
-  void _onTapClose(String name) async {
-    SSHPage.focusNode.unfocus();
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(l10n.attention),
-          content: Text('${l10n.close} SSH ${l10n.conn}($name) ?'),
-          actions: [
-            TextButton(
-              onPressed: () => context.pop(true),
-              child: Text(l10n.ok, style: UIs.textRed),
-            ),
-            TextButton(
-              onPressed: () => context.pop(false),
-              child: Text(l10n.cancel),
-            ),
-          ],
-        );
-      },
-    );
-    Future.delayed(Durations.short1, FocusScope.of(context).unfocus);
-    if (confirm != true) return;
-
-    _tabMap.remove(name);
-    _tabRN.build();
-    _pageCtrl.previousPage(
-        duration: Durations.medium1, curve: Curves.fastEaseInToSlowEaseOut);
-  }
-
-  Widget _buildAddPage() {
-    return Center(
-      child: Consumer<ServerProvider>(builder: (_, pro, __) {
-        if (pro.serverOrder.isEmpty) {
-          return Center(
-            child: Text(
-              l10n.serverTabEmpty,
-              textAlign: TextAlign.center,
-            ),
-          );
-        }
-        return ListView.builder(
-          padding: const EdgeInsets.all(7),
-          itemBuilder: (_, idx) {
-            final spi = Pros.server.pick(id: pro.serverOrder[idx])?.spi;
-            if (spi == null) return UIs.placeholder;
-            return CardX(
-              child: ListTile(
-                title: Text(spi.name),
-                subtitle: Text(spi.id, style: UIs.textGrey),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _onTapInitCard(spi),
-              ),
-            );
-          },
-          itemCount: pro.servers.length,
-        );
-      }),
-    );
-  }
-
-  Widget _buildBody() {
     return ListenBuilder(
-      listenable: _tabRN,
-      builder: () {
-        return PageView.builder(
-          physics: const NeverScrollableScrollPhysics(),
-          controller: _pageCtrl,
-          itemCount: _tabMap.length,
-          itemBuilder: (_, idx) {
-            final name = _tabMap.keys.elementAt(idx);
-            return _tabMap[name]?.page ?? UIs.placeholder;
-          },
-          onPageChanged: (value) => _fabVN.value = value,
-        );
-      },
-    );
-  }
-
-  void _onTapInitCard(ServerPrivateInfo spi) async {
-    final name = () {
-      final reg = RegExp('${spi.name}\\((\\d+)\\)');
-      final idxs = _tabMap.keys
-          .map((e) => reg.firstMatch(e))
-          .map((e) => e?.group(1))
-          .where((e) => e != null);
-      if (idxs.isEmpty) {
-        return _tabMap.keys.contains(spi.name) ? '${spi.name}(1)' : spi.name;
-      }
-      final biggest = idxs.reduce((a, b) => a!.length > b!.length ? a : b);
-      final biggestInt = int.tryParse(biggest ?? '0');
-      if (biggestInt != null && biggestInt > 0) {
-        return '${spi.name}(${biggestInt + 1})';
-      }
-      return spi.name;
-    }();
-    final key = GlobalKey<SSHPageState>();
-    _tabMap[name] = (
-      page: SSHPage(
-        // Keep it, or the Flutter will works unexpectedly
-        key: key,
-        spi: spi,
-        notFromTab: false,
-        onSessionEnd: () {
-          _tabMap.remove(name);
-        },
+      listenable: _sessions,
+      builder: () => SbPaneList(
+        // The rail is there from the start, empty surface or not. Folding it
+        // away until the first terminal opened meant this tab greeted a wide
+        // window with a full-width grid of cards, and then rearranged itself
+        // into a rail and a surface the moment one was opened — two layouts
+        // for one page, the first of which is not what the page looks like.
+        sideBuilder: (_) => _SideBar(
+          sessions: _sessions,
+          sortVersion: Listenable.merge([_sortVersion, _search]),
+          search: _search,
+          actions: [_sortAction, _searchAction],
+          onOpen: _openServer,
+          onLocal: () => _open(const LocalSource()),
+          onRootfsOpen: _openRootfs,
+          onRootfsAdd: _addRootfs,
+          onRootfsRemove: _removeRootfs,
+          onEdit: (spi) =>
+              ServerEditPage.route.go(context, args: ServerEditArgs(spi)),
+          onSelect: _sessions.select,
+          onClose: _confirmClose,
+        ),
+        builder: (_, split) => _buildTerminals(split),
       ),
-      key: key,
     );
-    _tabRN.build();
-    // Wait for the page to be built
-    await Future.delayed(Durations.short3);
-    final idx = _tabMap.keys.toList().indexOf(name);
-    await _toPage(idx);
   }
 
-  Future<void> _toPage(int idx) => _pageCtrl.animateToPage(idx,
-      duration: Durations.short3, curve: Curves.fastEaseInToSlowEaseOut);
+  Widget _buildTerminals(bool split) {
+    // Selected here rather than left where it was: page 0 is the picker's,
+    // and once the rail is drawing that list nothing in it can reach page 0
+    // again, so a layout that turns split while the picker was current left an
+    // empty surface beside a rail with no way back. Deferred, because this
+    // runs during a build.
+    final landOn = _firstTabToStart();
+    if (split && _sessions.index == 0 && landOn != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _sessions.index == 0) _sessions.select(landOn);
+      });
+    }
 
-  @override
-  bool get wantKeepAlive => true;
+    return Scaffold(
+      // With a rail beside it there is nothing left for a strip to do: the
+      // rail switches sessions and starts them, so all the bar has to say is
+      // which one is on screen.
+      appBar: split ? _sessionBar : _tabBar,
+      body: SessionTabsView<_SshSession>(
+        controller: _sessions,
+        // Sessions can open while another tab is the one on screen.
+        mayFocus: () => ref.read(currentHomeTabProvider) == AppTab.ssh,
+        // Page 0 is the picker's on one column. Beside a rail it is what the
+        // surface shows before anything is opened — and nothing else, because
+        // the rail is already that list and drawing it twice is what the grid
+        // of cards was.
+        leading: split
+            ? const EmptyPane(icon: Icons.terminal_outlined)
+            : _picker,
+        builder: (_, tab) => tab.data.page,
+      ),
+    );
+  }
+
+  PreferredSizeWidget get _tabBar {
+    // Read here, in the page's build, so a screen reader turned on or off
+    // builds the bar again.
+    final reader = MediaQuery.accessibleNavigationOf(context);
+    return PreferredSizeListenBuilder(
+      // Both: the bar shows which tab is current *and* how the picker behind it
+      // is sorted.
+      listenable: Listenable.merge([_sessions, _sortVersion]),
+      // The wrapper is what the `Scaffold` measures, so it has to be told;
+      // its own default is a full toolbar.
+      preferSize: const Size.fromHeight(SessionTabBar.height),
+      builder: () => SessionTabBar(
+        names: _sessions.names,
+        index: _sessions.index,
+        // The name alone: an icon beside it read as a button.
+        leadingIcon: null,
+        onTap: _sessions.select,
+        onClose: _confirmClose,
+        detailOf: _sessionAddr,
+        leadingOf: _sessions.statusOf,
+        // A button of its own for a screen reader, which has no other way to
+        // the output; behind ⋮ otherwise, so on a phone it never takes a slot
+        // from a button that is used more.
+        sessionActions: _serverActions(textView: reader, onBar: true),
+        sessionMenu: reader ? null : () => [_textViewMenuItem],
+        sessionMenuActions: _serverActions(textView: reader, onBar: false),
+        leadingActions: [_sortAction, _searchAction, _settingsAction],
+        // In place of the strip, not over it. Only on the picker: a search here
+        // narrows that list, and the tabs beside it are open terminals rather
+        // than anything to find.
+        search: _search,
+      ),
+    );
+  }
+
+  /// What a session's row in the sheet says under the name: the machine the
+  /// shell is on. Nothing for a shell on this device — its name already says
+  /// so, and it has no address to give.
+  String? _sessionAddr(int index) {
+    final tab = _sessions.tabs.elementAtOrNull(index - 1);
+    return switch (tab?.data.page.args.source) {
+      ServerSource(:final spi) => spi.displayAddr,
+      _ => null,
+    };
+  }
+
+  PreferredSizeWidget get _sessionBar => PreferredSizeListenBuilder(
+    listenable: _sessions,
+    builder: () {
+      final current = _sessions.current;
+      return CustomAppBar(
+        title: Text(current?.name ?? libL10n.terminal),
+        // Both act on the terminal that is showing, and now that the rail
+        // stays up with none of them open there may be no such terminal. A
+        // button that looks tappable and does nothing is worse than no button.
+        actions: [
+          // Wide, there is room for every button.
+          for (final action in current == null
+              ? [_settingsAction]
+              : _serverActions(textView: true))
+            action.button(),
+          const SizedBox(width: 7),
+        ],
+      );
+    },
+  );
 }
 
-final class _TabBar extends StatelessWidget implements PreferredSizeWidget {
-  const _TabBar({
-    required this.idxVN,
-    required this.map,
-    required this.onTap,
-    required this.onClose,
-  });
+/// Opening and closing terminals.
+extension _Sessions on _SSHTabPageState {
+  /// Opens a shell on [spi].
+  void _openServer(
+    Spi spi, {
+    Snippet? snippet,
+    TerminalSession? session,
+  }) => _open(ServerSource(spi), snippet: snippet, session: session);
 
-  final ValueNotifier<int> idxVN;
-  final _TabMap map;
-  final void Function(int idx) onTap;
-  final void Function(String name) onClose;
-
-  List<String> get names => map.keys.toList();
-
-  @override
-  Size get preferredSize => const Size.fromHeight(48);
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenBuilder(
-      listenable: idxVN,
-      builder: () {
-        return ListView.separated(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
-          itemCount: names.length,
-          itemBuilder: (_, idx) => _buillItem(idx),
-          separatorBuilder: (_, __) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 17),
-            child: Container(
-              color: const Color.fromARGB(61, 158, 158, 158),
-              width: 3,
+  /// Opens a shell wherever [source] says.
+  void _open(
+    TerminalSource source, {
+    Snippet? snippet,
+    TerminalSession? session,
+  }) {
+    // Assigned once `add` returns. Only the callback below reads it, and only
+    // after the session it names has run for a while — the tab's own name is
+    // what anything evaluated *during* the build has to use.
+    late final String id;
+    final tab = _sessions.add(
+      preferred: source.label,
+      build: (name, focus, visible) {
+        final key = GlobalKey<SSHPageState>(debugLabel: name);
+        final live = ValueNotifier<TerminalSession?>(session);
+        return _SshSession(
+          pageKey: key,
+          session: live,
+          page: SSHPage(
+            key: key,
+            args: SshPageArgs(
+              source: source,
+              initSnippet: snippet,
+              session: session,
+              onSession: (session) => live.value = session,
+              onReveal: () => _reveal(id),
+              notFromTab: false,
+              // The tab's id, not its name: a connection can end long after
+              // its tab was closed, by which time the name may belong to a
+              // newer session on the same server.
+              onSessionEnd: () => _closeTab(id),
+              focusNode: focus,
+              visibleListenable: visible,
             ),
           ),
         );
       },
     );
+    id = tab.id;
+    _sessions.select(_sessions.names.indexOf(tab.name));
   }
 
-  Widget _buillItem(int idx) {
-    final name = names[idx];
-    final selected = idxVN.value == idx;
-    final color = selected ? null : Colors.grey;
+  /// Opens a shell in the system a chip names.
+  ///
+  /// Which one is picked on the page rather than asked for here: they can all
+  /// run at once, so it is a tap on the one wanted and not a question in the
+  /// way.
+  void _openRootfs(String profileId) =>
+      _open(LocalSource(rootfs: true, profileId: profileId));
 
-    final Widget child;
-    if (idx == 0) {
-      child = Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 13),
-        child: Icon(MingCute.add_circle_fill, size: 17, color: color),
+  /// Installs another system and opens a shell in it.
+  ///
+  /// The install is where the tap may stop: it downloads, and it can be
+  /// cancelled or fail. Only a system that is actually there gets a tab, which
+  /// is why the id comes back from the install rather than from the settings.
+  /// Opens the Linux settings rather than installing something.
+  ///
+  /// It used to install straight away: one tap fetched a fixed distribution at
+  /// a fixed version and opened a shell in it. That is a download of a hundred
+  /// megabytes and a choice of distribution, both made on the user's behalf by
+  /// a `+` on a list of servers. The settings page is where the choice
+  /// actually lives — which release, which mirror, which shell — so this is
+  /// the way there.
+  /// [SettingsSectionPage], which is the group with a bar and a surface round
+  /// it — [AppSettingsPage] on its own is the rows, and a route holding those
+  /// alone is a black screen.
+  ///
+  /// On the root navigator, not this tab's. The settings are not part of the
+  /// terminal tab, and pushed inside it they replaced its contents with the
+  /// navigation still on screen — and from the side bar, which is a pane, they
+  /// would open in the narrow column beside the terminals.
+  void _addRootfs() {
+    SettingsSectionPage.route.go(
+      context,
+      SettingsSection.linux,
+      target: NavTarget.root,
+    );
+  }
+
+  /// Deletes one Linux system, and the terminals that were inside it.
+  ///
+  /// Their shells are already gone with the files they were running from, so
+  /// leaving the tabs up would leave dead terminals nobody asked to keep. Tabs
+  /// in the *other* systems are untouched — that is the point of them being
+  /// separate.
+  Future<void> _removeRootfs(LinuxProfile target) async {
+    await removeRootfs(context, profile: target);
+  }
+
+  Future<void> _confirmClose(int index) async {
+    // Resolved now, while the position still means what the bar drew.
+    final tab = _sessions.tabs.elementAtOrNull(index - 1);
+    if (tab == null) return;
+
+    final confirm = await contextSafe?.showSheet(
+      title: libL10n.attention,
+      // Not "SSH": this strip also carries a shell on this device and one
+      // inside the Linux userland, neither of which is a connection to
+      // anything.
+      child: Text('${libL10n.close} ${libL10n.terminal}(${tab.name}) ?'),
+      actions: Btnx.okReds,
+    );
+    if (confirm != true) return;
+    // Only once the tab is actually going. Dropping focus on the way out of a
+    // cancelled dialog took the keyboard from a terminal the user had just
+    // decided to keep.
+    if (mounted) FocusScope.of(context).unfocus();
+    _closeTab(tab.id);
+  }
+
+  /// Opens everything queued for this tab and empties the queue.
+  void _drainRequests() {
+    final pending = ref.read(terminalRequestsProvider);
+    if (pending.isEmpty) return;
+    ref.read(terminalRequestsProvider.notifier).clear();
+    for (final request in pending) {
+      _openServer(
+        request.spi,
+        snippet: request.snippet,
+        session: request.session,
       );
-    } else {
-      final text = Text(
-        name,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(color: color),
-        softWrap: false,
-        textAlign: TextAlign.center,
-        textWidthBasis: TextWidthBasis.parent,
-      );
-      child = AnimatedContainer(
-        width: selected ? 90 : 50,
-        duration: Durations.medium3,
-        curve: Curves.fastEaseInToSlowEaseOut,
-        child: switch (selected) {
-          true => Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.start,
-              children: [
-                SizedBox(width: 55, child: text),
-                if (selected)
-                  FadeIn(
-                    child: IconBtn(
-                      icon: MingCute.close_circle_fill,
-                      color: color,
-                      onTap: () => onClose(name),
-                    ),
-                  ),
-              ],
-            ),
-          false => Center(child: text),
-        },
-      ).paddingOnly(left: 3, right: 3);
     }
+  }
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(13),
-      onTap: () => onTap(idx),
-      child: child,
-    ).paddingSymmetric(horizontal: 13);
+  /// The first open tab worth landing on, or null when there is none.
+  ///
+  /// Local shells are passed over. Showing a terminal starts it, and on iOS
+  /// starting the local one boots the Linux guest — too much to happen because
+  /// a tab came into view. They are still in the rail, one tap away, and a
+  /// server reconnects on sight as it always did.
+  int? _firstTabToStart() {
+    final tabs = _sessions.tabs;
+    for (var i = 0; i < tabs.length; i++) {
+      if (tabs[i].data.page.args.source is! LocalSource) return i + 1;
+    }
+    return null;
+  }
+
+  /// Selects the tab [id], if it is still open: a tapped notification.
+  void _reveal(String id) {
+    if (!mounted) return;
+    final at = _sessions.tabs.indexWhere((tab) => tab.id == id);
+    if (at >= 0) _sessions.select(at + 1);
+  }
+
+  void _closeTab(String id) => _sessions.remove(id);
+}
+
+/// The buttons on the tab bar.
+extension _Actions on _SSHTabPageState {
+  /// Closes every terminal, when something has asked for it.
+  ///
+  /// No confirmation here. The ask comes from the tab strip's own menu, which
+  /// confirms before it gets this far; this end only knows that the answer was
+  /// yes.
+  void _drainCloseAll() {
+    if (!ref.read(terminalCloseAllRequestProvider)) return;
+    ref.read(terminalCloseAllRequestProvider.notifier).done();
+
+    // Copied, because closing a tab is what mutates the list being walked.
+    final ids = [for (final tab in _sessions.tabs) tab.id];
+    if (ids.isEmpty) return;
+    if (mounted) FocusScope.of(context).unfocus();
+    for (final id in ids) {
+      _closeTab(id);
+    }
+  }
+
+  /// The buttons for whichever terminal is showing.
+  ///
+  /// The agent's tools all name a server, so it is offered only on one.
+  /// Snippets are offered everywhere: the picker leaves out the ones that
+  /// mention a server when there is none.
+  ///
+  /// Read from the tab's arguments rather than its live state: a tab that has
+  /// not been looked at yet has no state, and the buttons would flicker in as
+  /// it built.
+  ///
+  /// [_floatBtn] is last, which puts it in the corner of the window — the
+  /// place a control over the window itself belongs.
+  ///
+  /// [onBar] picks a half for the narrow bar: true for what stays on it —
+  /// the state, the agent, the metrics and the floating window — and false
+  /// for the rest, which lives behind ⋮. Null is every button, for a bar
+  /// wide enough for them all.
+  List<BarAction> _serverActions({required bool textView, bool? onBar}) {
+    final current = _sessions.current;
+    if (current == null) return const [];
+    final args = current.data.page.args;
+    final onServer = args.spi != null;
+    final status = terminalStatusAction(
+      session: current.data.session,
+      paneLabel: (pane) =>
+          current.data.pageKey.currentState?.tmuxPaneLabel(pane),
+    );
+    final all = <(BarAction, bool)>[
+      (status, true),
+      if (args.canReconnect) (_reconnectAction, false),
+      if (onServer) (_agentAction, true),
+      (_snippetAction, false),
+      // On the bar: only asked for by a screen reader, which has no other
+      // way to the output.
+      if (textView) (_textViewAction, true),
+      if (onServer) (_metricsAction, true),
+      (_settingsAction, false),
+      if (onServer) (_moveAction, false),
+      (_floatAction, true),
+    ];
+    return [
+      for (final (action, bar) in all)
+        if (onBar == null || onBar == bar) action,
+    ];
+  }
+
+  /// Sends the terminal on screen into the window that floats over every tab,
+  /// and brings it back.
+  ///
+  /// On the tab and not on the page inside it, beside the other buttons that
+  /// act on whichever terminal is showing — and because a terminal opened as a
+  /// route rather than as a tab has nowhere to come back to.
+  ///
+  /// Its own [Consumer] so that only the button rebuilds when the window opens
+  /// or closes; the bar around it is driven by the session list.
+  BarAction get _floatAction => BarAction.listen(
+    listenable: _floating,
+    build: (_) {
+      final session = _sessions.current?.data.pageKey.currentState?.session;
+      final floating = session != null && identical(_floating.value, session);
+      return BarAction(
+        icon: floating
+            ? Icons.picture_in_picture_alt
+            : Icons.picture_in_picture_alt_outlined,
+        label: floating ? l10n.floatReturnToTab : l10n.floatOverTabs,
+        onTap: _toggleFloat,
+      );
+    },
+  );
+
+  void _toggleFloat() {
+    final tab = _sessions.current;
+    // Null until the page has been built once, which is a tab restored but
+    // never looked at. There is no session to float yet, and the tap that
+    // brought it on screen is what makes one.
+    final state = tab?.data.pageKey.currentState;
+    if (tab == null || state == null) return;
+
+    final shell = ref.read(terminalShellProvider.notifier);
+    if (shell.isFloating(state.session)) {
+      shell.hide();
+      return;
+    }
+    // The tab's name, not the server's: two shells on one machine are told
+    // apart by exactly that, and the window's title bar has the same job the
+    // tab strip does.
+    shell.float(state.session, title: tab.name);
+  }
+
+  /// Opens the agent on the terminal that is on screen, the same way the
+  /// snippet picker beside it works.
+  BarAction get _agentAction => BarAction(
+    icon: Icons.auto_awesome,
+    label: l10n.askAi,
+    onTap: () =>
+        _sessions.current?.data.pageKey.currentState?.openAgentFromToolbar(),
+  );
+
+  /// Shows and hides the server's readings under the terminal: the setting,
+  /// reachable from where it takes effect.
+  BarAction get _metricsAction => BarAction.listen(
+    listenable: Stores.setting.termMetricsBar.listenable(),
+    build: (_) {
+      final on = Stores.setting.termMetricsBar.fetch();
+      return BarAction(
+        icon: on ? Icons.speed : Icons.speed_outlined,
+        label: l10n.termMetricsBar,
+        onTap: () => Stores.setting.termMetricsBar.put(!on),
+      );
+    },
+  );
+
+  /// Carries the terminal on screen into a workspace, still connected.
+  ///
+  /// A server's only: a workspace's tabs are views of servers.
+  BarAction get _moveAction => BarAction(
+    icon: Icons.space_dashboard_outlined,
+    label: l10n.workspaceMoveTo,
+    onTap: _moveToWorkspace,
+  );
+
+  Future<void> _moveToWorkspace() async {
+    final tab = _sessions.current;
+    final state = tab?.data.pageKey.currentState;
+    final spi = tab?.data.page.args.spi;
+    // Not yet built: there is no session to carry, only a server to open
+    // one on, which the workspace can do itself.
+    if (tab == null || state == null || spi == null) return;
+    final workspaces = ref.read(workspacesProvider).all;
+    // The id of the workspace, `''` for a new one, null for no answer.
+    final target = await showRowsSheet<String>(
+      context,
+      title: l10n.workspaceMoveTo,
+      rows: (ctx) => [
+        for (final ws in workspaces)
+          SheetChoiceTile(
+            icon: Icons.space_dashboard_outlined,
+            title: ws.name,
+            subtitle: l10n.workspaceIntoFocused,
+            selected: false,
+            onTap: () => Navigator.of(ctx).pop(ws.id),
+          ),
+        SheetChoiceTile(
+          icon: Icons.add,
+          title: l10n.workspaceNew,
+          selected: false,
+          onTap: () => Navigator.of(ctx).pop(''),
+        ),
+      ],
+    );
+    if (target == null || !mounted) return;
+    // Still this tab: the sheet was up, and the strip did not move under it.
+    if (!identical(_sessions.current, tab)) return;
+    final session = state.handOff();
+    final notifier = ref.read(workspacesProvider.notifier);
+    notifier.adoptSession(target.isEmpty ? null : target, spi.id, session);
+    _closeTab(tab.id);
+    ref.read(homeTabRequestProvider.notifier).go(AppTab.workspace);
+    Toast.show(
+      l10n.workspaceMoved(spi.name, ref.read(workspacesProvider).current.name),
+    );
+  }
+
+  /// Re-establishes the link of the terminal on screen, for one that looks
+  /// alive and is not; see [SSHPageState.reconnectFromToolbar].
+  BarAction get _reconnectAction => BarAction(
+    icon: Icons.refresh,
+    label: l10n.reconnect,
+    onTap: () => _sessions.current?.data.pageKey.currentState?.reconnectFromToolbar(),
+  );
+
+  BarAction get _snippetAction => BarAction(
+    icon: Icons.code,
+    label: libL10n.snippet,
+    onTap: () =>
+        _sessions.current?.data.pageKey.currentState?.pickSnippetFromToolbar(),
+  );
+
+  BarAction get _textViewAction => BarAction(
+    icon: Icons.article_outlined,
+    label: l10n.termTextView,
+    onTap: _openTextView,
+  );
+
+  ContextMenuAction get _textViewMenuItem => ContextMenuAction(
+    icon: Icons.article_outlined,
+    text: l10n.termTextView,
+    onTap: _openTextView,
+  );
+
+  void _openTextView() =>
+      _sessions.current?.data.pageKey.currentState?.openTextView();
+
+  BarAction get _sortAction => BarAction(
+    icon: _SortOrder.stored.icon,
+    label: libL10n.sort,
+    onTap: _showSortMenu,
+  );
+
+  BarAction get _searchAction => BarAction(
+    icon: Icons.search,
+    label: libL10n.search,
+    onTap: _search.start,
+  );
+
+  BarAction get _settingsAction => BarAction(
+    key: const ValueKey('terminal-settings'),
+    icon: Icons.settings_outlined,
+    label: libL10n.setting,
+    onTap: () => SettingsSectionPage.route.go(
+      context,
+      SettingsSection.ssh,
+      target: NavTarget.root,
+    ),
+  );
+
+  /// A sheet rather than a dialog, which is what every other list of choices
+  /// in the app is now — see `showRowsSheet`. A dialog for this put a box in
+  /// the middle of the screen over the list it was about, and was raised from
+  /// a button in the top corner, as far from it as the window allows.
+  Future<void> _showSortMenu() async {
+    await showRowsSheet<void>(
+      context,
+      rows: (ctx) => [
+        for (final order in _SortOrder.all)
+          SheetChoiceTile(
+            icon: order.icon,
+            title: order.label,
+            selected: order.isCurrent,
+            onTap: () {
+              order.save();
+              Navigator.of(ctx).pop();
+              _sortVersion.notify();
+            },
+          ),
+      ],
+    );
   }
 }

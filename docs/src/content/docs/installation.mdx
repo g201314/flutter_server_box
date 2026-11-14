@@ -1,0 +1,58 @@
+---
+title: Installation
+description: Download and install Server Box
+---
+
+Server Box is available on several platforms. Choose the download source for your device.
+
+## Mobile
+
+### iOS
+
+Download Server Box from the **[App Store](https://apps.apple.com/app/id1586449703)**.
+
+### Android
+
+Choose an installation source:
+
+- **[GitHub Releases](https://github.com/lollipopkit/flutter_server_box/releases)**: Project release page
+- **[F-Droid](https://f-droid.org/packages/tech.lolli.toolbox)**: FOSS app repository
+- **[OpenAPK](https://www.openapk.net/serverbox/tech.lolli.toolbox/)**: Third-party app store
+
+## Desktop
+
+### macOS
+
+Download from **[GitHub Releases](https://github.com/lollipopkit/flutter_server_box/releases)**, or install with Homebrew Cask:
+
+```sh
+brew install --cask server-box
+```
+
+macOS 13 or later is required. GitHub Releases provide `ServerBox-<version>-arm64.dmg` for Apple silicon and `ServerBox-<version>-amd64.dmg` for Intel; Homebrew automatically selects the correct build for your Mac.
+
+The Mac App Store version is no longer updated. Install the DMG over it: its first launch copies the App Store version's data in.
+
+### Linux
+
+Download the AppImage from **[GitHub Releases](https://github.com/lollipopkit/flutter_server_box/releases)**.
+
+### Windows
+
+Download the installer (`ServerBox_v1.0.N_windows_amd64.exe`) from **[GitHub Releases](https://github.com/lollipopkit/flutter_server_box/releases)**. It installs for the current user into `%LOCALAPPDATA%\Programs\ServerBox`, without administrator rights, and adds a Start menu entry and an uninstaller. A new version installs over the old one; settings and servers are kept.
+
+The installer is not code-signed, so SmartScreen may show "unknown publisher". A portable zip is still published next to it for now.
+
+## watchOS
+
+The Watch app is distributed with the iOS app through the **[App Store](https://apps.apple.com/app/id1586449703)**. After installation, configure the servers to show in the iPhone app. The Watch app requires watchOS 10 or later; the iOS app itself still supports iOS 15 or later.
+
+## Building from source
+
+To build Server Box from source, see the [Building guide](/docs/development/building/).
+
+## Version information
+
+See the [Changelog](/docs/changelog/) for what changed in each version, and
+[GitHub Releases](https://github.com/lollipopkit/flutter_server_box/releases)
+for the installers themselves.

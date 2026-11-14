@@ -1,5 +1,7 @@
-import 'package:flutter/material.dart';
-import 'package:toolbox/core/extension/context/locale.dart';
+import 'package:fl_lib/fl_lib.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:server_box/data/model/container/status.dart';
+import 'package:server_box/src/rust/api/container.dart' as ffi;
 
 enum ContainerMenu {
   start,
@@ -7,60 +9,39 @@ enum ContainerMenu {
   restart,
   rm,
   logs,
-  terminal,
-  //stats,
-  ;
+  terminal;
 
-  static List<ContainerMenu> items(bool running) {
-    if (running) {
-      return [
-        stop,
-        restart,
-        rm,
-        logs,
-        terminal,
-        //stats,
-      ];
-    } else {
-      return [start, rm, logs];
-    }
-  }
+  /// What a container in [status] is offered, by `sbm_parser::container`'s
+  /// rule: an unrecognised state is grouped with a stopped one, and logs are
+  /// offered in every state.
+  static List<ContainerMenu> items(ContainerStatus status) => [
+    for (final kind in ffi.containerMenuItems(statusName: status.name))
+      switch (kind) {
+        ffi.ContainerMenuKind.start => start,
+        ffi.ContainerMenuKind.stop => stop,
+        ffi.ContainerMenuKind.restart => restart,
+        ffi.ContainerMenuKind.remove => rm,
+        ffi.ContainerMenuKind.logs => logs,
+        ffi.ContainerMenuKind.terminal => terminal,
+      },
+  ];
 
-  IconData get icon {
-    switch (this) {
-      case ContainerMenu.start:
-        return Icons.play_arrow;
-      case ContainerMenu.stop:
-        return Icons.stop;
-      case ContainerMenu.restart:
-        return Icons.restart_alt;
-      case ContainerMenu.rm:
-        return Icons.delete;
-      case ContainerMenu.logs:
-        return Icons.logo_dev;
-      case ContainerMenu.terminal:
-        return Icons.terminal;
-      // case DockerMenuType.stats:
-      //   return Icons.bar_chart;
-    }
-  }
+  IconData get icon => switch (this) {
+    ContainerMenu.start => Icons.play_arrow,
+    ContainerMenu.stop => Icons.stop,
+    ContainerMenu.restart => Icons.restart_alt,
+    ContainerMenu.rm => Icons.delete,
+    ContainerMenu.logs => Icons.logo_dev,
+    ContainerMenu.terminal => Icons.terminal,
+  };
 
-  String get toStr {
-    switch (this) {
-      case ContainerMenu.start:
-        return l10n.start;
-      case ContainerMenu.stop:
-        return l10n.stop;
-      case ContainerMenu.restart:
-        return l10n.restart;
-      case ContainerMenu.rm:
-        return l10n.delete;
-      case ContainerMenu.logs:
-        return l10n.log;
-      case ContainerMenu.terminal:
-        return l10n.terminal;
-      // case DockerMenuType.stats:
-      //   return s.stats;
-    }
-  }
+  String get toStr => switch (this) {
+    ContainerMenu.start => libL10n.start,
+    ContainerMenu.stop => libL10n.stop,
+    ContainerMenu.restart => libL10n.restart,
+    ContainerMenu.rm => libL10n.delete,
+    ContainerMenu.logs => libL10n.log,
+    ContainerMenu.terminal => libL10n.terminal,
+  };
 }
+

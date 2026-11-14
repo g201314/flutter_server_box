@@ -1,15 +1,23 @@
 import 'package:fl_lib/fl_lib.dart';
-import 'package:flutter/material.dart';
-import 'package:toolbox/core/extension/context/locale.dart';
-import 'package:toolbox/core/route.dart';
-import 'package:toolbox/data/model/server/server_private_info.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:server_box/core/extension/context/locale.dart';
+import 'package:server_box/core/route.dart';
+import 'package:server_box/data/terminal/terminal_source.dart';
+import 'package:server_box/src/rust/api/iperf.dart' as ffi;
+import 'package:server_box/view/page/ssh/page/page.dart';
 
 class IPerfPage extends StatefulWidget {
-  final ServerPrivateInfo spi;
-  const IPerfPage({super.key, required this.spi});
+  final SpiRequiredArgs args;
+
+  const IPerfPage({super.key, required this.args});
 
   @override
   State<IPerfPage> createState() => _IPerfPageState();
+
+  static const route = AppRouteArg<void, SpiRequiredArgs>(
+    page: IPerfPage.new,
+    path: '/iperf',
+  );
 }
 
 class _IPerfPageState extends State<IPerfPage> {
@@ -17,30 +25,28 @@ class _IPerfPageState extends State<IPerfPage> {
   final _portCtrl = TextEditingController();
 
   @override
+  void dispose() {
+    _hostCtrl.dispose();
+    _portCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const CustomAppBar(
-        title: Text('iperf'),
-      ),
+      appBar: CustomAppBar(title: const Text('iperf')),
       body: _buildBody(),
       floatingActionButton: _buildFAB(),
     );
   }
+}
 
+extension _Widgets on _IPerfPageState {
   Widget _buildFAB() {
     return FloatingActionButton(
       heroTag: 'iperf',
+      onPressed: _onTapSend,
       child: const Icon(Icons.send),
-      onPressed: () {
-        if (_hostCtrl.text.isEmpty || _portCtrl.text.isEmpty) {
-          context.showSnackBar(l10n.fieldMustNotEmpty);
-          return;
-        }
-        AppRoutes.ssh(
-          spi: widget.spi,
-          initCmd: 'iperf -c ${_hostCtrl.text} -p ${_portCtrl.text}',
-        ).go(context);
-      },
     );
   }
 
@@ -50,16 +56,44 @@ class _IPerfPageState extends State<IPerfPage> {
       children: [
         Input(
           controller: _hostCtrl,
-          label: l10n.host,
+          label: libL10n.host,
           icon: Icons.computer,
+          suggestion: false,
         ),
         Input(
           controller: _portCtrl,
-          label: l10n.port,
+          label: libL10n.port,
           type: TextInputType.number,
           icon: Icons.numbers,
+          suggestion: false,
         ),
       ],
     );
+  }
+}
+
+extension _Actions on _IPerfPageState {
+  void _onTapSend() {
+    final rawHost = _hostCtrl.text.trim();
+    final portText = _portCtrl.text.trim();
+    if (rawHost.isEmpty || portText.isEmpty) {
+      Toast.show(libL10n.empty);
+      return;
+    }
+    final host = ffi.iperfNormalizeHost(raw: rawHost);
+    if (host == null) {
+      Toast.error(l10n.invalidHostFormat);
+      return;
+    }
+    final port = ffi.iperfValidPort(raw: portText);
+    if (port == null) {
+      Toast.error('${libL10n.invalid}: ${libL10n.port}');
+      return;
+    }
+    final args = SshPageArgs(
+      source: ServerSource(widget.args.spi),
+      initCmd: ffi.iperfClientCommand(host: host, port: port),
+    );
+    SSHPage.route.go(context, args);
   }
 }

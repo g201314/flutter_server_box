@@ -1,115 +1,73 @@
-import 'dart:convert';
+import 'package:server_box/src/rust/api/container.dart' as ffi;
 
-import 'package:fl_lib/fl_lib.dart';
-import 'package:toolbox/data/model/container/type.dart';
+/// One image, as `sbm_parser::container` read it from either runtime.
+final class ContainerImg {
+  ContainerImg.fromFfi(this._item);
 
-abstract final class ContainerImg {
-  final String? repository = null;
-  final String? tag = null;
-  final String? id = null;
-  String? get sizeMB;
-  int? get containersCount;
+  ContainerImg({
+    String repository = '<none>',
+    String? tag,
+    String? id,
+    String? digest,
+    String? size,
+    int? containers,
+    String? createdAt,
+    int? created,
+    bool dangling = false,
+    bool unused = false,
+  }) : _item = ffi.ContainerImageItem(
+         repository: repository,
+         tag: tag,
+         id: id,
+         digest: digest,
+         size: size,
+         containers: containers,
+         createdAt: createdAt,
+         created: created,
+         dangling: dangling,
+         unused: unused,
+       );
 
-  factory ContainerImg.fromRawJson(String s, ContainerType typ) => typ.img(s);
+  final ffi.ContainerImageItem _item;
+
+  /// `<none>` when the runtime named no repository.
+  String get repository => _item.repository;
+  String? get tag => _item.tag;
+  String? get id => _item.id;
+  String? get digest => _item.digest;
+
+  /// The runtime's own size text, or one rendered from Podman's byte count.
+  String? get size => _item.size;
+
+  /// How many containers use it; `null` is unknown, never zero.
+  int? get containersCount => _item.containers;
+
+  /// Docker's creation text, passed through as it printed it.
+  String? get createdAt => _item.createdAt;
+
+  /// Podman's creation time, in Unix seconds.
+  int? get created => _item.created;
+
+  /// `<none>:<none>`: nothing to lose by removing it.
+  bool get isDangling => _item.dangling;
+
+  /// Dangling, or known to have no container referencing it.
+  bool get isUnused => _item.unused;
+
+  /// What it is named by: `repository:tag`, or its short id when dangling
+  /// (`ContainerImage::reference`). Asked of Rust once, not on every build
+  /// of the row showing it.
+  late final String reference = ffi.containerImageReference(image: _item);
 }
 
-final class PodmanImg implements ContainerImg {
-  @override
-  final String? repository;
-  @override
-  final String? tag;
-  @override
-  final String? id;
-  final int? created;
-  final int? size;
-  final int? containers;
-
-  PodmanImg({
-    this.repository,
-    this.tag,
-    this.id,
-    this.created,
-    this.size,
-    this.containers,
-  });
-
-  @override
-  String? get sizeMB => size?.bytes2Str;
-
-  @override
-  int? get containersCount => containers;
-
-  factory PodmanImg.fromRawJson(String str) =>
-      PodmanImg.fromJson(json.decode(str));
-
-  String toRawJson() => json.encode(toJson());
-
-  factory PodmanImg.fromJson(Map<String, dynamic> json) => PodmanImg(
-        repository: json["repository"],
-        tag: json["tag"],
-        id: json["Id"],
-        created: json["Created"],
-        size: json["Size"],
-        containers: json["Containers"],
-      );
-
-  Map<String, dynamic> toJson() => {
-        "repository": repository,
-        "tag": tag,
-        "Id": id,
-        "Created": created,
-        "Size": size,
-        "Containers": containers,
-      };
-}
-
-final class DockerImg implements ContainerImg {
-  final String containers;
-  final String createdAt;
-  @override
-  final String id;
-  @override
-  final String repository;
-  final String size;
-  @override
-  final String tag;
-
-  DockerImg({
-    required this.containers,
-    required this.createdAt,
-    required this.id,
-    required this.repository,
-    required this.size,
-    required this.tag,
-  });
-
-  @override
-  String? get sizeMB => size;
-
-  @override
-  int? get containersCount =>
-      containers == 'N/A' ? 0 : int.tryParse(containers);
-
-  factory DockerImg.fromRawJson(String str) =>
-      DockerImg.fromJson(json.decode(str));
-
-  String toRawJson() => json.encode(toJson());
-
-  factory DockerImg.fromJson(Map<String, dynamic> json) => DockerImg(
-        containers: json["Containers"],
-        createdAt: json["CreatedAt"],
-        id: json["ID"],
-        repository: json["Repository"],
-        size: json["Size"],
-        tag: json["Tag"],
-      );
-
-  Map<String, dynamic> toJson() => {
-        "Containers": containers,
-        "CreatedAt": createdAt,
-        "ID": id,
-        "Repository": repository,
-        "Size": size,
-        "Tag": tag,
-      };
-}
+/// The tagged images known to have nothing referencing them, or `null` when
+/// one's use could not be confirmed against [containerImageReferences].
+int? countUnusedTaggedImages(
+  Iterable<ContainerImg> images,
+  Iterable<String?> containerImageReferences,
+) => ffi.containerCountUnusedTaggedImages(
+  images: [for (final image in images) image._item],
+  containerImages: [
+    for (final reference in containerImageReferences) ?reference,
+  ],
+);

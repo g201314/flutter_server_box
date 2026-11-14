@@ -14,13 +14,17 @@
 	<array>
 		<string>iCloud.tech.lolli.serverbox</string>
 	</array>
+	<!-- Off, as in Release.entitlements: what is developed against is what
+	     ships. -->
 	<key>com.apple.security.app-sandbox</key>
-	<true/>
+	<false/>
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
 	<key>com.apple.security.network.server</key>
 	<true/>
+	<key>keychain-access-groups</key>
+	<array/>
 </dict>
 </plist>

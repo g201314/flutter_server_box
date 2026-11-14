@@ -1,0 +1,57 @@
+---
+title: 安装
+description: 下载并安装 Server Box
+---
+
+Server Box 支持多个平台。请根据你的设备选择对应的下载来源。
+
+## 移动端
+
+### iOS
+
+从 **[App Store](https://apps.apple.com/app/id1586449703)** 下载。
+
+### Android
+
+你可以从以下来源选择安装包：
+
+- **[GitHub Releases](https://github.com/lollipopkit/flutter_server_box/releases)**：项目发布页
+- **[F-Droid](https://f-droid.org/packages/tech.lolli.toolbox)**：FOSS 应用商店
+- **[OpenAPK](https://www.openapk.net/serverbox/tech.lolli.toolbox/)**：第三方应用商店
+
+## 桌面端
+
+### macOS
+
+从 **[GitHub Releases](https://github.com/lollipopkit/flutter_server_box/releases)** 下载，或使用 Homebrew Cask：
+
+```sh
+brew install --cask server-box
+```
+
+要求 macOS 13 或更高版本。GitHub Releases 分别提供适用于 Apple silicon 的 `ServerBox-<版本>-arm64.dmg` 和适用于 Intel 的 `ServerBox-<版本>-amd64.dmg`；Homebrew 会自动为当前 Mac 选择正确的版本。
+
+Mac App Store 版本已不再更新。直接安装 DMG 版本即可，首次启动时会导入 App Store 版本的数据。
+
+### Linux
+
+从 **[GitHub Releases](https://github.com/lollipopkit/flutter_server_box/releases)** 下载 AppImage。
+
+### Windows
+
+从 **[GitHub Releases](https://github.com/lollipopkit/flutter_server_box/releases)** 下载安装程序(`ServerBox_v1.0.N_windows_amd64.exe`)。它为当前用户安装到 `%LOCALAPPDATA%\Programs\ServerBox`,不需要管理员权限,并添加开始菜单项和卸载程序。新版本直接覆盖安装旧版本,设置和服务器会保留。
+
+安装程序没有代码签名,SmartScreen 可能提示"未知发布者"。目前仍会同时发布便携版 zip。
+
+## watchOS
+
+Watch App 随 iOS App 一起通过 **[App Store](https://apps.apple.com/app/id1586449703)** 提供。安装后，在 iPhone App 中配置要显示的服务器。Watch App 需要 watchOS 10 或更高版本，iOS App 本身仍支持 iOS 15 或更高版本。
+
+## 从源码构建
+
+如果要从源码构建 Server Box，请参阅开发文档中的[构建指南](/docs/zh/development/building/)。
+
+## 版本信息
+
+各版本的变更内容见[更新日志](/docs/zh/changelog/)，安装包见
+[GitHub Releases](https://github.com/lollipopkit/flutter_server_box/releases)。

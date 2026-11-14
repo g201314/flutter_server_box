@@ -1,24 +1,17 @@
 import 'dart:io';
 
-import 'package:hive_flutter/hive_flutter.dart';
+import 'package:json_annotation/json_annotation.dart';
 import 'package:wake_on_lan/wake_on_lan.dart';
 
 part 'wol_cfg.g.dart';
 
-@HiveType(typeId: 8)
+@JsonSerializable(includeIfNull: false)
 final class WakeOnLanCfg {
-  @HiveField(0)
   final String mac;
-  @HiveField(1)
   final String ip;
-  @HiveField(2)
   final String? pwd;
 
-  const WakeOnLanCfg({
-    required this.mac,
-    required this.ip,
-    this.pwd,
-  });
+  const WakeOnLanCfg({required this.mac, required this.ip, this.pwd});
 
   (Object?, bool) validate() {
     final macValidation = MACAddress.validate(mac);
@@ -40,36 +33,30 @@ final class WakeOnLanCfg {
   }
 
   Future<void> wake() {
-    if (!validate().$2) {
-      throw Exception('Invalid WakeOnLanCfg');
-    }
+    final (err, valid) = validate();
+    // The editor validates before saving; a stored config that no longer
+    // passes says why, in the words the editor would have used.
+    if (!valid) throw FormatException('${err ?? 'Invalid Wake-on-LAN config'}');
 
     final ip_ = IPAddress(ip);
     final mac_ = MACAddress(mac);
     final pwd_ = pwd != null ? SecureONPassword(pwd!) : null;
     final obj = WakeOnLAN(ip_, mac_, password: pwd_);
-    return obj.wake(
-      repeat: 3,
-      repeatDelay: const Duration(milliseconds: 500),
-    );
+    return obj.wake(repeat: 3, repeatDelay: const Duration(milliseconds: 500));
   }
 
-  static WakeOnLanCfg fromJson(Map<String, dynamic> json) {
-    return WakeOnLanCfg(
-      mac: json['mac'] as String,
-      ip: json['ip'] as String,
-      pwd: json['pwd'] as String?,
-    );
-  }
+  factory WakeOnLanCfg.fromJson(Map<String, dynamic> json) =>
+      _$WakeOnLanCfgFromJson(json);
 
-  Map<String, dynamic> toJson() {
-    final map = <String, dynamic>{
-      'mac': mac,
-      'ip': ip,
-    };
-    if (pwd != null) {
-      map['pwd'] = pwd;
-    }
-    return map;
-  }
+  Map<String, dynamic> toJson() => _$WakeOnLanCfgToJson(this);
+
+  @override
+  bool operator ==(Object other) =>
+      other is WakeOnLanCfg &&
+      other.mac == mac &&
+      other.ip == ip &&
+      other.pwd == pwd;
+
+  @override
+  int get hashCode => Object.hash(mac, ip, pwd);
 }

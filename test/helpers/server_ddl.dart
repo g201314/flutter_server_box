@@ -1,0 +1,112 @@
+import 'package:fl_lib/fl_lib.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+/// `server` as today's Drift creates it.
+String freshServerDdl() =>
+    SqliteDb.instance
+            .select("SELECT sql FROM sqlite_master WHERE name = 'server';")
+            .single['sql']
+        as String;
+
+/// The three PVE columns m030 moved out, as Drift declared them from v4 to v30.
+const pveServerColumns =
+    '"pve_addr" TEXT NULL, '
+    '"pve_ignore_cert" INTEGER NOT NULL DEFAULT 0 '
+    'CHECK ("pve_ignore_cert" IN (0, 1)), '
+    '"pve_pwd" TEXT NULL, ';
+
+/// `server` as a fresh install created it at v29 and v30: today's table with
+/// the PVE columns m030 dropped put back where they stood, before
+/// `prefer_temp_dev`.
+///
+/// Derived rather than copied so the rest of the table follows today's, with
+/// the anchor asserted to have been found — a change that moves it fails here
+/// rather than producing a shape that never existed.
+String serverDdlBeforePveTable(String fresh) {
+  const anchor = '"prefer_temp_dev" TEXT NULL, ';
+  expect(fresh, contains(anchor));
+  expect(fresh, isNot(contains('"pve_addr"')));
+  return serverDdlBeforeDiskCountsNetwork(
+    fresh,
+  ).replaceFirst(anchor, '$pveServerColumns$anchor');
+}
+
+/// The column m032 added, as Drift declares it: last, where `ADD COLUMN` puts
+/// it too.
+const diskCountsNetworkColumn =
+    ', "disk_counts_network" INTEGER NOT NULL DEFAULT 0 '
+    'CHECK ("disk_counts_network" IN (0, 1))';
+
+/// `server` as it was before v33: the v35 table less `disk_counts_network`,
+/// asserted to have been found.
+String serverDdlBeforeDiskCountsNetwork(String fresh) {
+  expect(fresh, contains(diskCountsNetworkColumn));
+  return serverDdlBeforeMonitorCertPin(
+    fresh,
+  ).replaceFirst(diskCountsNetworkColumn, '');
+}
+
+/// `monitor_ignore_cert` as Drift declared it from v4 to v35.
+const monitorIgnoreCertColumn =
+    '"monitor_ignore_cert" INTEGER NULL CHECK ("monitor_ignore_cert" IN (0, 1)), ';
+
+/// `server` as it was at v35: today's table with `monitor_ignore_cert` where
+/// m035 put `monitor_cert_sha256`, the anchor asserted to have been found.
+String serverDdlBeforeMonitorCertPin(String fresh) {
+  const anchor = '"monitor_cert_sha256" TEXT NULL, ';
+  final before = serverDdlBeforeIdentityAgent(fresh);
+  expect(before, contains(anchor));
+  return before.replaceFirst(anchor, monitorIgnoreCertColumn);
+}
+
+/// The column m039 added: last, where `ADD COLUMN` puts it too.
+const identityAgentColumn = ', "ssh_identity_agent" TEXT NULL';
+
+/// `server` as it was before v40, asserted to have been found.
+String serverDdlBeforeIdentityAgent(String fresh) {
+  final before = serverDdlBeforeForwardAgent(fresh);
+  expect(before, contains(identityAgentColumn));
+  return before.replaceFirst(identityAgentColumn, '');
+}
+
+/// The column m040 added: last, where `ADD COLUMN` puts it too.
+const forwardAgentColumn =
+    ', "ssh_forward_agent" INTEGER NOT NULL DEFAULT 0 '
+    'CHECK ("ssh_forward_agent" IN (0, 1))';
+
+/// `server` as it was before v41, asserted to have been found.
+String serverDdlBeforeForwardAgent(String fresh) {
+  final before = serverDdlBeforeControlPath(fresh);
+  expect(before, contains(forwardAgentColumn));
+  return before.replaceFirst(forwardAgentColumn, '');
+}
+
+/// The column m041 added: last, where `ADD COLUMN` puts it too.
+const controlPathColumn = ', "ssh_control_path" TEXT NULL';
+
+/// `server` as it was before v42, asserted to have been found.
+String serverDdlBeforeControlPath(String fresh) {
+  expect(fresh, contains(controlPathColumn));
+  return fresh.replaceFirst(controlPathColumn, '');
+}
+
+/// Replaces `server` with [ddl], keeping every child table: the same pragmas
+/// the rebuild steps use, so neither a cascade nor a rewritten foreign key
+/// touches what is already there.
+void replaceServerTable(String ddl) {
+  final db = SqliteDb.instance;
+  db.execute('PRAGMA foreign_keys = OFF;');
+  db.execute('PRAGMA legacy_alter_table = ON;');
+  db.execute('DROP TABLE server;');
+  db.execute(ddl);
+  db.execute('PRAGMA legacy_alter_table = OFF;');
+  db.execute('PRAGMA foreign_keys = ON;');
+}
+
+/// `server_custom_cmd` as Drift created it from v4 to v36; m036 drops it.
+void createServerCustomCmdTable() => SqliteDb.instance.execute(
+  'CREATE TABLE IF NOT EXISTS "server_custom_cmd" ('
+  '"server_id" TEXT NOT NULL REFERENCES server (id) ON DELETE CASCADE, '
+  '"name" TEXT NOT NULL, "cmd" TEXT NOT NULL, '
+  'PRIMARY KEY ("server_id", "name")) WITHOUT ROWID;',
+);

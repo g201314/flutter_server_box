@@ -1,48 +1,82 @@
 import 'package:fl_lib/fl_lib.dart';
-import 'package:flutter/material.dart';
-import 'package:toolbox/core/extension/context/locale.dart';
-import 'package:toolbox/data/res/store.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:server_box/core/chan.dart';
+import 'package:server_box/core/extension/context/locale.dart';
+import 'package:server_box/core/utils/app_auth.dart';
+import 'package:server_box/data/store/stores.dart';
+
+/// A row the settings page draws, described without naming its own row type.
+///
+/// This file is imported *by* the settings page, so it cannot see the type
+/// that page builds its groups out of. A label and a builder is everything
+/// that type needs — see `SettingsRowSpecX.row`.
+typedef SettingsRowSpec = ({String label, Widget Function() build});
 
 abstract final class PlatformPublicSettings {
+  /// Mobile only: there is no app switcher card to hide on a desktop, and
+  /// neither platform channel implements this there.
+  ///
+  /// The native side keeps its own copy, so the switch has to push as well as
+  /// store.
+  ///
+  /// A `validator` and not a `callback`: the push is what actually covers the
+  /// app, so if the platform refuses it the switch has to stay where it was.
+  /// Written the other way the preference was stored anyway, and the user was
+  /// left reading "on" off a switch that had covered nothing.
+  static SettingsRowSpec? get privacyBlur {
+    if (!isIOS && !isAndroid) return null;
+    final label = l10n.privacyBlur;
+    return (
+      label: label,
+      build: () => ListTile(
+        leading: const Icon(Icons.blur_on),
+        title: Text(label),
+        subtitle: Text(l10n.privacyBlurTip, style: UIs.textGrey),
+        trailing: StoreSwitch(
+          prop: Stores.setting.privacyBlur,
+          validator: (val) async {
+            final ok = await MethodChans.setPrivacyBlur(val);
+            if (!ok) Toast.error(libL10n.fail);
+            return ok;
+          },
+        ),
+      ),
+    );
+  }
+
+  /// Whether this device can ask for a fingerprint or a face at all.
+  ///
+  /// Asked once when the page opens rather than by a builder in the row: the
+  /// group the row is in has to know whether to exist, and a row that appears
+  /// a frame later left a hairline with nothing under it.
+  static Future<bool> get bioAuthAvailable async {
+    if (!isIOS && !isAndroid && !isWindows) return false;
+    return await LocalAuth.isAvail;
+  }
+
+  /// The switch. The delay under it is a row of its own, so the group draws
+  /// the line between the two.
   static Widget buildBioAuth() {
-    return FutureWidget<bool>(
-      future: BioAuth.isAvail,
-      loading: ListTile(
-        title: Text(l10n.bioAuth),
-        subtitle: Text(l10n.serverTabLoading, style: UIs.textGrey),
+    return ListTile(
+      leading: const Icon(Icons.fingerprint),
+      title: Text(libL10n.bioAuth),
+      trailing: StoreSwitch(
+        prop: Stores.setting.useBioAuth,
+        // Both ways: turning it on proves this device can open the lock it
+        // is about to be held behind.
+        validator: (_) async => AppAuth.passed(await LocalAuth.goWithResult()),
       ),
-      error: (e, __) => ListTile(
-        title: Text(l10n.bioAuth),
-        subtitle: Text('${l10n.failed}: $e', style: UIs.textGrey),
-      ),
-      success: (can) {
-        return ListTile(
-          title: Text(l10n.bioAuth),
-          subtitle: can == true
-              ? null
-              : const Text(
-                  'Not available',
-                  style: UIs.textGrey,
-                ),
-          trailing: can == true
-              ? StoreSwitch(
-                  prop: Stores.setting.useBioAuth,
-                  callback: (val) async {
-                    if (val) {
-                      Stores.setting.useBioAuth.put(false);
-                      return;
-                    }
-                    // Only auth when turn off (val == false)
-                    final result = await BioAuth.goWithResult();
-                    // If failed, turn on again
-                    if (result != AuthResult.success) {
-                      Stores.setting.useBioAuth.put(true);
-                    }
-                  },
-                )
-              : null,
-        );
-      },
+    );
+  }
+
+  static String get bioAuthDelayLabel =>
+      '${libL10n.delay} (${libL10n.second})';
+
+  static Widget buildBioAuthDelay() {
+    return ListTile(
+      leading: const Icon(Icons.timer_outlined),
+      title: Text(bioAuthDelayLabel),
+      trailing: Stores.setting.delayBioAuthLock.fieldWidget(),
     );
   }
 }

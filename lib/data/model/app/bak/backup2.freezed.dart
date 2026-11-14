@@ -1,0 +1,453 @@
+// GENERATED CODE - DO NOT MODIFY BY HAND
+// coverage:ignore-file
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
+// ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
+
+part of 'backup2.dart';
+
+// **************************************************************************
+// FreezedGenerator
+// **************************************************************************
+
+// GENERATED CODE - DO NOT MODIFY BY HAND
+// dart format off
+T _$identity<T>(T value) => value;
+
+/// @nodoc
+mixin _$BackupV2 {
+
+ int get version; int get date; Map<String, Object?> get spis; Map<String, Object?> get snippets; Map<String, Object?> get keys; Map<String, Object?> get container; Map<String, Object?> get history; Map<String, Object?> get settings;/// Absent from every file written before port forwards became a record of
+/// their own, so it defaults rather than being required — an older backup
+/// has to keep decoding.
+ Map<String, Object?> get portForwards;/// Absent from files written before built-in RDP/VNC support.
+ Map<String, Object?> get remoteDesktopProfiles;/// Same reason as [portForwards]: no file written before BMC support has
+/// one. A server whose `bmc.credId` names an account this map does not
+/// carry restores with the address and no account, which the editor shows.
+ Map<String, Object?> get bmcCredentials;/// Each server's `PveConfig`, by server id — `PveStore.getAllMap`.
+///
+/// The only place a file carries PVE. One written before PVE had a table
+/// of its own has no such section and restores without PVE; see
+/// `_pveToRestore`.
+ Map<String, Object?> get pve;/// The installed theme packages, by installation id — see
+/// [ThemeBackup]. Only beside [settings]: they are what the theme
+/// settings point at. Absent from files written before themes were
+/// carried (#1637), whose theme settings restore onto the default.
+ Map<String, Object?> get themes;/// The synced kv stores beside [settings], by name
+/// (`SyncRecorder.syncedStores`): the Agent's. Absent from files written
+/// before they synced.
+ Map<String, Object?> get stores;
+/// Create a copy of BackupV2
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$BackupV2CopyWith<BackupV2> get copyWith => _$BackupV2CopyWithImpl<BackupV2>(this as BackupV2, _$identity);
+
+  /// Serializes this BackupV2 to a JSON map.
+  Map<String, dynamic> toJson();
+
+
+@override
+bool operator ==(Object other) {
+  final _this = this as BackupV2;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BackupV2&&(identical(other.version, _this.version) || other.version == _this.version)&&(identical(other.date, _this.date) || other.date == _this.date)&&const DeepCollectionEquality().equals(other.spis, _this.spis)&&const DeepCollectionEquality().equals(other.snippets, _this.snippets)&&const DeepCollectionEquality().equals(other.keys, _this.keys)&&const DeepCollectionEquality().equals(other.container, _this.container)&&const DeepCollectionEquality().equals(other.history, _this.history)&&const DeepCollectionEquality().equals(other.settings, _this.settings)&&const DeepCollectionEquality().equals(other.portForwards, _this.portForwards)&&const DeepCollectionEquality().equals(other.remoteDesktopProfiles, _this.remoteDesktopProfiles)&&const DeepCollectionEquality().equals(other.bmcCredentials, _this.bmcCredentials)&&const DeepCollectionEquality().equals(other.pve, _this.pve)&&const DeepCollectionEquality().equals(other.themes, _this.themes)&&const DeepCollectionEquality().equals(other.stores, _this.stores));
+}
+
+@JsonKey(includeFromJson: false, includeToJson: false)
+@override
+int get hashCode {
+  final _this = this as BackupV2;
+  return Object.hash(runtimeType,_this.version,_this.date,const DeepCollectionEquality().hash(_this.spis),const DeepCollectionEquality().hash(_this.snippets),const DeepCollectionEquality().hash(_this.keys),const DeepCollectionEquality().hash(_this.container),const DeepCollectionEquality().hash(_this.history),const DeepCollectionEquality().hash(_this.settings),const DeepCollectionEquality().hash(_this.portForwards),const DeepCollectionEquality().hash(_this.remoteDesktopProfiles),const DeepCollectionEquality().hash(_this.bmcCredentials),const DeepCollectionEquality().hash(_this.pve),const DeepCollectionEquality().hash(_this.themes),const DeepCollectionEquality().hash(_this.stores));
+}
+
+@override
+String toString() {
+  final _this = this as BackupV2;
+  return 'BackupV2(version: ${_this.version}, date: ${_this.date}, spis: ${_this.spis}, snippets: ${_this.snippets}, keys: ${_this.keys}, container: ${_this.container}, history: ${_this.history}, settings: ${_this.settings}, portForwards: ${_this.portForwards}, remoteDesktopProfiles: ${_this.remoteDesktopProfiles}, bmcCredentials: ${_this.bmcCredentials}, pve: ${_this.pve}, themes: ${_this.themes}, stores: ${_this.stores})';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $BackupV2CopyWith<$Res>  {
+  factory $BackupV2CopyWith(BackupV2 value, $Res Function(BackupV2) _then) = _$BackupV2CopyWithImpl;
+@useResult
+$Res call({
+ int version, int date, Map<String, Object?> spis, Map<String, Object?> snippets, Map<String, Object?> keys, Map<String, Object?> container, Map<String, Object?> history, Map<String, Object?> settings, Map<String, Object?> portForwards, Map<String, Object?> remoteDesktopProfiles, Map<String, Object?> bmcCredentials, Map<String, Object?> pve, Map<String, Object?> themes, Map<String, Object?> stores
+});
+
+
+
+
+}
+/// @nodoc
+class _$BackupV2CopyWithImpl<$Res>
+    implements $BackupV2CopyWith<$Res> {
+  _$BackupV2CopyWithImpl(this._self, this._then);
+
+  final BackupV2 _self;
+  final $Res Function(BackupV2) _then;
+
+/// Create a copy of BackupV2
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') @override $Res call({Object? version = null,Object? date = null,Object? spis = null,Object? snippets = null,Object? keys = null,Object? container = null,Object? history = null,Object? settings = null,Object? portForwards = null,Object? remoteDesktopProfiles = null,Object? bmcCredentials = null,Object? pve = null,Object? themes = null,Object? stores = null,}) {
+  return _then(BackupV2(
+version: null == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
+as int,date: null == date ? _self.date : date // ignore: cast_nullable_to_non_nullable
+as int,spis: null == spis ? _self.spis : spis // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,snippets: null == snippets ? _self.snippets : snippets // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,keys: null == keys ? _self.keys : keys // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,container: null == container ? _self.container : container // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,history: null == history ? _self.history : history // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,settings: null == settings ? _self.settings : settings // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,portForwards: null == portForwards ? _self.portForwards : portForwards // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,remoteDesktopProfiles: null == remoteDesktopProfiles ? _self.remoteDesktopProfiles : remoteDesktopProfiles // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,bmcCredentials: null == bmcCredentials ? _self.bmcCredentials : bmcCredentials // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,pve: null == pve ? _self.pve : pve // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,themes: null == themes ? _self.themes : themes // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,stores: null == stores ? _self.stores : stores // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,
+  ));
+}
+
+}
+
+
+/// Adds pattern-matching-related methods to [BackupV2].
+extension BackupV2Patterns on BackupV2 {
+/// A variant of `map` that fallback to returning `orElse`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>(TResult Function( _BackupV2 value)?  $default,{required TResult orElse(),}){
+final _that = this;
+switch (_that) {
+case _BackupV2() when $default != null:
+return $default(_that);case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// Callbacks receives the raw object, upcasted.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case final Subclass2 value:
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult map<TResult extends Object?>(TResult Function( _BackupV2 value)  $default,){
+final _that = this;
+switch (_that) {
+case _BackupV2():
+return $default(_that);case _:
+  throw StateError('Unexpected subclass');
+
+}
+}
+/// A variant of `map` that fallback to returning `null`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>(TResult? Function( _BackupV2 value)?  $default,){
+final _that = this;
+switch (_that) {
+case _BackupV2() when $default != null:
+return $default(_that);case _:
+  return null;
+
+}
+}
+/// A variant of `when` that fallback to an `orElse` callback.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( int version,  int date,  Map<String, Object?> spis,  Map<String, Object?> snippets,  Map<String, Object?> keys,  Map<String, Object?> container,  Map<String, Object?> history,  Map<String, Object?> settings,  Map<String, Object?> portForwards,  Map<String, Object?> remoteDesktopProfiles,  Map<String, Object?> bmcCredentials,  Map<String, Object?> pve,  Map<String, Object?> themes,  Map<String, Object?> stores)?  $default,{required TResult orElse(),}) {final _that = this;
+switch (_that) {
+case _BackupV2() when $default != null:
+return $default(_that.version,_that.date,_that.spis,_that.snippets,_that.keys,_that.container,_that.history,_that.settings,_that.portForwards,_that.remoteDesktopProfiles,_that.bmcCredentials,_that.pve,_that.themes,_that.stores);case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// As opposed to `map`, this offers destructuring.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case Subclass2(:final field2):
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( int version,  int date,  Map<String, Object?> spis,  Map<String, Object?> snippets,  Map<String, Object?> keys,  Map<String, Object?> container,  Map<String, Object?> history,  Map<String, Object?> settings,  Map<String, Object?> portForwards,  Map<String, Object?> remoteDesktopProfiles,  Map<String, Object?> bmcCredentials,  Map<String, Object?> pve,  Map<String, Object?> themes,  Map<String, Object?> stores)  $default,) {final _that = this;
+switch (_that) {
+case _BackupV2():
+return $default(_that.version,_that.date,_that.spis,_that.snippets,_that.keys,_that.container,_that.history,_that.settings,_that.portForwards,_that.remoteDesktopProfiles,_that.bmcCredentials,_that.pve,_that.themes,_that.stores);case _:
+  throw StateError('Unexpected subclass');
+
+}
+}
+/// A variant of `when` that fallback to returning `null`
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( int version,  int date,  Map<String, Object?> spis,  Map<String, Object?> snippets,  Map<String, Object?> keys,  Map<String, Object?> container,  Map<String, Object?> history,  Map<String, Object?> settings,  Map<String, Object?> portForwards,  Map<String, Object?> remoteDesktopProfiles,  Map<String, Object?> bmcCredentials,  Map<String, Object?> pve,  Map<String, Object?> themes,  Map<String, Object?> stores)?  $default,) {final _that = this;
+switch (_that) {
+case _BackupV2() when $default != null:
+return $default(_that.version,_that.date,_that.spis,_that.snippets,_that.keys,_that.container,_that.history,_that.settings,_that.portForwards,_that.remoteDesktopProfiles,_that.bmcCredentials,_that.pve,_that.themes,_that.stores);case _:
+  return null;
+
+}
+}
+
+}
+
+/// @nodoc
+@JsonSerializable()
+
+class _BackupV2 extends BackupV2 {
+  const _BackupV2({required this.version, required this.date, required  Map<String, Object?> spis, required  Map<String, Object?> snippets, required  Map<String, Object?> keys, required  Map<String, Object?> container, required  Map<String, Object?> history, required  Map<String, Object?> settings,  Map<String, Object?> portForwards = const <String, Object?>{},  Map<String, Object?> remoteDesktopProfiles = const <String, Object?>{},  Map<String, Object?> bmcCredentials = const <String, Object?>{},  Map<String, Object?> pve = const <String, Object?>{},  Map<String, Object?> themes = const <String, Object?>{},  Map<String, Object?> stores = const <String, Object?>{}}): _spis = spis,_snippets = snippets,_keys = keys,_container = container,_history = history,_settings = settings,_portForwards = portForwards,_remoteDesktopProfiles = remoteDesktopProfiles,_bmcCredentials = bmcCredentials,_pve = pve,_themes = themes,_stores = stores,super._();
+  factory _BackupV2.fromJson(Map<String, dynamic> json) => _$BackupV2FromJson(json);
+
+@override final  int version;
+@override final  int date;
+ final  Map<String, Object?> _spis;
+@override Map<String, Object?> get spis {
+  if (_spis is EqualUnmodifiableMapView) return _spis;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableMapView(_spis);
+}
+
+ final  Map<String, Object?> _snippets;
+@override Map<String, Object?> get snippets {
+  if (_snippets is EqualUnmodifiableMapView) return _snippets;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableMapView(_snippets);
+}
+
+ final  Map<String, Object?> _keys;
+@override Map<String, Object?> get keys {
+  if (_keys is EqualUnmodifiableMapView) return _keys;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableMapView(_keys);
+}
+
+ final  Map<String, Object?> _container;
+@override Map<String, Object?> get container {
+  if (_container is EqualUnmodifiableMapView) return _container;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableMapView(_container);
+}
+
+ final  Map<String, Object?> _history;
+@override Map<String, Object?> get history {
+  if (_history is EqualUnmodifiableMapView) return _history;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableMapView(_history);
+}
+
+ final  Map<String, Object?> _settings;
+@override Map<String, Object?> get settings {
+  if (_settings is EqualUnmodifiableMapView) return _settings;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableMapView(_settings);
+}
+
+/// Absent from every file written before port forwards became a record of
+/// their own, so it defaults rather than being required — an older backup
+/// has to keep decoding.
+ final  Map<String, Object?> _portForwards;
+/// Absent from every file written before port forwards became a record of
+/// their own, so it defaults rather than being required — an older backup
+/// has to keep decoding.
+@override@JsonKey() Map<String, Object?> get portForwards {
+  if (_portForwards is EqualUnmodifiableMapView) return _portForwards;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableMapView(_portForwards);
+}
+
+/// Absent from files written before built-in RDP/VNC support.
+ final  Map<String, Object?> _remoteDesktopProfiles;
+/// Absent from files written before built-in RDP/VNC support.
+@override@JsonKey() Map<String, Object?> get remoteDesktopProfiles {
+  if (_remoteDesktopProfiles is EqualUnmodifiableMapView) return _remoteDesktopProfiles;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableMapView(_remoteDesktopProfiles);
+}
+
+/// Same reason as [portForwards]: no file written before BMC support has
+/// one. A server whose `bmc.credId` names an account this map does not
+/// carry restores with the address and no account, which the editor shows.
+ final  Map<String, Object?> _bmcCredentials;
+/// Same reason as [portForwards]: no file written before BMC support has
+/// one. A server whose `bmc.credId` names an account this map does not
+/// carry restores with the address and no account, which the editor shows.
+@override@JsonKey() Map<String, Object?> get bmcCredentials {
+  if (_bmcCredentials is EqualUnmodifiableMapView) return _bmcCredentials;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableMapView(_bmcCredentials);
+}
+
+/// Each server's `PveConfig`, by server id — `PveStore.getAllMap`.
+///
+/// The only place a file carries PVE. One written before PVE had a table
+/// of its own has no such section and restores without PVE; see
+/// `_pveToRestore`.
+ final  Map<String, Object?> _pve;
+/// Each server's `PveConfig`, by server id — `PveStore.getAllMap`.
+///
+/// The only place a file carries PVE. One written before PVE had a table
+/// of its own has no such section and restores without PVE; see
+/// `_pveToRestore`.
+@override@JsonKey() Map<String, Object?> get pve {
+  if (_pve is EqualUnmodifiableMapView) return _pve;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableMapView(_pve);
+}
+
+/// The installed theme packages, by installation id — see
+/// [ThemeBackup]. Only beside [settings]: they are what the theme
+/// settings point at. Absent from files written before themes were
+/// carried (#1637), whose theme settings restore onto the default.
+ final  Map<String, Object?> _themes;
+/// The installed theme packages, by installation id — see
+/// [ThemeBackup]. Only beside [settings]: they are what the theme
+/// settings point at. Absent from files written before themes were
+/// carried (#1637), whose theme settings restore onto the default.
+@override@JsonKey() Map<String, Object?> get themes {
+  if (_themes is EqualUnmodifiableMapView) return _themes;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableMapView(_themes);
+}
+
+/// The synced kv stores beside [settings], by name
+/// (`SyncRecorder.syncedStores`): the Agent's. Absent from files written
+/// before they synced.
+ final  Map<String, Object?> _stores;
+/// The synced kv stores beside [settings], by name
+/// (`SyncRecorder.syncedStores`): the Agent's. Absent from files written
+/// before they synced.
+@override@JsonKey() Map<String, Object?> get stores {
+  if (_stores is EqualUnmodifiableMapView) return _stores;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableMapView(_stores);
+}
+
+
+/// Create a copy of BackupV2
+/// with the given fields replaced by the non-null parameter values.
+@override @JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+_$BackupV2CopyWith<_BackupV2> get copyWith => __$BackupV2CopyWithImpl<_BackupV2>(this, _$identity);
+
+@override
+Map<String, dynamic> toJson() {
+  return _$BackupV2ToJson(this, );
+}
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _BackupV2&&(identical(other.version, version) || other.version == version)&&(identical(other.date, date) || other.date == date)&&const DeepCollectionEquality().equals(other.spis, _spis)&&const DeepCollectionEquality().equals(other.snippets, _snippets)&&const DeepCollectionEquality().equals(other.keys, _keys)&&const DeepCollectionEquality().equals(other.container, _container)&&const DeepCollectionEquality().equals(other.history, _history)&&const DeepCollectionEquality().equals(other.settings, _settings)&&const DeepCollectionEquality().equals(other.portForwards, _portForwards)&&const DeepCollectionEquality().equals(other.remoteDesktopProfiles, _remoteDesktopProfiles)&&const DeepCollectionEquality().equals(other.bmcCredentials, _bmcCredentials)&&const DeepCollectionEquality().equals(other.pve, _pve)&&const DeepCollectionEquality().equals(other.themes, _themes)&&const DeepCollectionEquality().equals(other.stores, _stores));
+}
+
+@JsonKey(includeFromJson: false, includeToJson: false)
+@override
+int get hashCode {
+    return Object.hash(runtimeType,version,date,const DeepCollectionEquality().hash(_spis),const DeepCollectionEquality().hash(_snippets),const DeepCollectionEquality().hash(_keys),const DeepCollectionEquality().hash(_container),const DeepCollectionEquality().hash(_history),const DeepCollectionEquality().hash(_settings),const DeepCollectionEquality().hash(_portForwards),const DeepCollectionEquality().hash(_remoteDesktopProfiles),const DeepCollectionEquality().hash(_bmcCredentials),const DeepCollectionEquality().hash(_pve),const DeepCollectionEquality().hash(_themes),const DeepCollectionEquality().hash(_stores));
+}
+
+@override
+String toString() {
+    return 'BackupV2(version: $version, date: $date, spis: $spis, snippets: $snippets, keys: $keys, container: $container, history: $history, settings: $settings, portForwards: $portForwards, remoteDesktopProfiles: $remoteDesktopProfiles, bmcCredentials: $bmcCredentials, pve: $pve, themes: $themes, stores: $stores)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class _$BackupV2CopyWith<$Res> implements $BackupV2CopyWith<$Res> {
+  factory _$BackupV2CopyWith(_BackupV2 value, $Res Function(_BackupV2) _then) = __$BackupV2CopyWithImpl;
+@override @useResult
+$Res call({
+ int version, int date, Map<String, Object?> spis, Map<String, Object?> snippets, Map<String, Object?> keys, Map<String, Object?> container, Map<String, Object?> history, Map<String, Object?> settings, Map<String, Object?> portForwards, Map<String, Object?> remoteDesktopProfiles, Map<String, Object?> bmcCredentials, Map<String, Object?> pve, Map<String, Object?> themes, Map<String, Object?> stores
+});
+
+
+
+
+}
+/// @nodoc
+class __$BackupV2CopyWithImpl<$Res>
+    implements _$BackupV2CopyWith<$Res> {
+  __$BackupV2CopyWithImpl(this._self, this._then);
+
+  final _BackupV2 _self;
+  final $Res Function(_BackupV2) _then;
+
+/// Create a copy of BackupV2
+/// with the given fields replaced by the non-null parameter values.
+@override @pragma('vm:prefer-inline') $Res call({Object? version = null,Object? date = null,Object? spis = null,Object? snippets = null,Object? keys = null,Object? container = null,Object? history = null,Object? settings = null,Object? portForwards = null,Object? remoteDesktopProfiles = null,Object? bmcCredentials = null,Object? pve = null,Object? themes = null,Object? stores = null,}) {
+  return _then(_BackupV2(
+version: null == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
+as int,date: null == date ? _self.date : date // ignore: cast_nullable_to_non_nullable
+as int,spis: null == spis ? _self._spis : spis // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,snippets: null == snippets ? _self._snippets : snippets // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,keys: null == keys ? _self._keys : keys // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,container: null == container ? _self._container : container // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,history: null == history ? _self._history : history // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,settings: null == settings ? _self._settings : settings // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,portForwards: null == portForwards ? _self._portForwards : portForwards // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,remoteDesktopProfiles: null == remoteDesktopProfiles ? _self._remoteDesktopProfiles : remoteDesktopProfiles // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,bmcCredentials: null == bmcCredentials ? _self._bmcCredentials : bmcCredentials // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,pve: null == pve ? _self._pve : pve // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,themes: null == themes ? _self._themes : themes // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,stores: null == stores ? _self._stores : stores // ignore: cast_nullable_to_non_nullable
+as Map<String, Object?>,
+  ));
+}
+
+
+}
+
+// dart format on

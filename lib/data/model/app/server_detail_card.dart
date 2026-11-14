@@ -1,9 +1,14 @@
 import 'package:fl_lib/fl_lib.dart';
-import 'package:flutter/material.dart';
 import 'package:icons_plus/icons_plus.dart';
-import 'package:toolbox/core/extension/context/locale.dart';
-import 'package:toolbox/data/res/store.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:server_box/core/extension/context/locale.dart';
+import 'package:server_box/data/model/app/feature.dart';
 
+/// The cards the server detail page can draw.
+///
+/// `cpu`, `mem`, `swap`, `disk` and `net` are no longer cards: the page is
+/// built around those five, as one chart and a row each. The names stay
+/// because `detailCardDisabled` may still carry them from an older install.
 enum ServerDetailCards {
   about(Icons.info),
   cpu(Icons.memory),
@@ -11,60 +16,63 @@ enum ServerDetailCards {
   swap(Icons.swap_horiz),
   gpu(Bootstrap.gpu_card),
   disk(Bootstrap.device_hdd_fill),
+  smart(Icons.health_and_safety),
   net(ZondIcons.network),
   sensor(MingCute.dashboard_4_line),
   temp(FontAwesome.temperature_empty_solid),
   battery(Icons.battery_full),
-  pve(BoxIcons.bxs_dashboard, sinceBuild: 818),
-  custom(Icons.code, sinceBuild: 825),
-  ;
-
-  final int? sinceBuild;
+  pve(BoxIcons.bxs_dashboard),
+  bmc(Icons.developer_board),
+  webApps(Icons.apps),
+  custom(Icons.code);
 
   final IconData icon;
 
-  const ServerDetailCards(this.icon, {this.sinceBuild});
-
-  static ServerDetailCards? fromName(String str) =>
-      ServerDetailCards.values.firstWhereOrNull((e) => e.name == str);
-
-  static final names = values.map((e) => e.name).toList();
+  const ServerDetailCards(this.icon);
 
   String get toStr => switch (this) {
-        about => l10n.about,
-        cpu => 'CPU',
-        mem => 'RAM',
-        swap => 'Swap',
-        gpu => 'GPU',
-        disk => l10n.disk,
-        net => l10n.net,
-        sensor => l10n.sensors,
-        temp => l10n.temperature,
-        battery => l10n.battery,
-        pve => 'PVE',
-        custom => l10n.cmd,
-      };
+    about => libL10n.about,
+    cpu => 'CPU',
+    mem => 'RAM',
+    swap => 'Swap',
+    gpu => 'GPU',
+    disk => libL10n.disk,
+    smart => l10n.diskHealth,
+    net => libL10n.net,
+    sensor => libL10n.sensors,
+    temp => libL10n.temperature,
+    battery => libL10n.battery,
+    pve => 'PVE',
+    bmc => 'BMC',
+    webApps => l10n.webApps,
+    custom => libL10n.cmd,
+  };
 
-  /// If:
-  /// Version 1 => user set [about], default is [about, cpu]
-  /// Version 2 => default is [about, cpu, mem] => auto add [mem] to user's setting
-  static void autoAddNewCards(int cur) {
-    if (cur >= pve.sinceBuild!) {
-      final prop = Stores.setting.detailCardOrder;
-      final list = prop.fetch();
-      if (!list.contains(pve.name)) {
-        list.add(pve.name);
-        prop.put(list);
-      }
-    }
+  /// The mark that this card's feature is still in beta, where the card is
+  /// *listed* rather than drawn.
+  ///
+  /// Not on the card itself: that one is drawn beside a name the server page
+  /// reads in the same breath as the reading, and carries its own mark. This
+  /// is for the row that switches the card on and off.
+  Widget? get mark => switch (this) {
+    bmc => Feature.bmc.mark(),
+    webApps => Feature.monitor.mark(),
+    _ => null,
+  };
 
-    if (cur >= custom.sinceBuild!) {
-      final prop = Stores.setting.detailCardOrder;
-      final list = prop.fetch();
-      if (!list.contains(custom.name)) {
-        list.add(custom.name);
-        prop.put(list);
-      }
-    }
+  /// [toStr] with [mark], for a row that lists the card rather than drawing it.
+  Widget get listTitle {
+    final mark_ = mark;
+    if (mark_ == null) return Text(toStr);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: Text(toStr, maxLines: 1, overflow: TextOverflow.ellipsis),
+        ),
+        const SizedBox(width: 7),
+        mark_,
+      ],
+    );
   }
 }

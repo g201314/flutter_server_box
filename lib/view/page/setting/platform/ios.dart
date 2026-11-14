@@ -1,73 +1,143 @@
 import 'package:fl_lib/fl_lib.dart';
-import 'package:flutter/material.dart';
-import 'package:toolbox/core/extension/context/locale.dart';
-import 'package:toolbox/core/route.dart';
-import 'package:toolbox/core/utils/misc.dart';
-import 'package:toolbox/data/res/store.dart';
-import 'package:toolbox/view/page/setting/platform/platform_pub.dart';
-import 'package:watch_connectivity/watch_connectivity.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:plain_notification_token/plain_notification_token.dart';
+import 'package:server_box/core/chan.dart';
+import 'package:server_box/core/extension/context/inset.dart';
+import 'package:server_box/core/extension/context/locale.dart';
+import 'package:server_box/core/service/watch_sync.dart';
+import 'package:server_box/data/model/server/server_private_info.dart';
+import 'package:server_box/data/store/stores.dart';
+import 'package:server_box/view/widget/server_picker.dart';
 
-class IOSSettingsPage extends StatefulWidget {
-  const IOSSettingsPage({super.key});
+class IosSettingsPage extends StatefulWidget {
+  /// Whether it is being shown inside the settings pane rather than pushed.
+  ///
+  /// The pane already names what it is showing, in the one bar the page has;
+  /// a second one under it would say it twice.
+  final bool embedded;
+
+  const IosSettingsPage({super.key, this.embedded = false});
 
   @override
-  State<IOSSettingsPage> createState() => _IOSSettingsPageState();
+  State<IosSettingsPage> createState() => _IosSettingsPageState();
+
+  static const route = AppRouteNoArg(
+    page: IosSettingsPage.new,
+    path: '/settings/ios',
+  );
 }
 
-class _IOSSettingsPageState extends State<IOSSettingsPage> {
+class _IosSettingsPageState extends State<IosSettingsPage> {
   final _pushToken = ValueNotifier<String?>(null);
 
-  final wc = WatchConnectivity();
+  /// Asked of [WatchSync] rather than of a fresh `WatchConnectivity`, which
+  /// would install itself as the channel's only method call handler and take
+  /// the callbacks away from it.
+  late final _watchPairedFuture = WatchSync.instance.isWatchPaired;
+  late final _pushTokenFuture = _requestPushToken();
+
+  /// Whether iOS itself would allow one. Read once per visit to this page: the
+  /// user can change it in Settings, but only by leaving this one.
+  late final _liveActivityAvailableFuture = MethodChans.liveActivityAvailable();
+
+  void _showCopyResult(bool success) {
+    if (success) {
+      Toast.success(libL10n.success);
+    } else {
+      Toast.error(libL10n.fail);
+    }
+  }
+
+  /// Every tile here reads straight from the store, so redrawing is all that
+  /// is needed after an edit. `setState` is protected, hence the indirection
+  /// for the actions extension.
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+    _pushToken.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final body = ListView(
+      padding: context.padBottom(const EdgeInsets.symmetric(horizontal: 17)),
+      children: [
+        _buildPushToken(),
+        _buildLiveActivity(),
+        _buildAutoUpdateHomeWidget(),
+        _buildWatchApp(),
+      ].nonNulls.map((e) => CardX(child: e)).toList(),
+    );
+    if (widget.embedded) return body;
     return Scaffold(
-      appBar: const CustomAppBar(
-        title: Text('iOS'),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 17),
-        children: [
-          _buildPushToken(),
-          _buildAutoUpdateHomeWidget(),
-          _buildWatchApp(),
-          if (BioAuth.isPlatformSupported)
-            PlatformPublicSettings.buildBioAuth(),
-        ].map((e) => CardX(child: e)).toList(),
-      ),
+      appBar: CustomAppBar(title: const Text('iOS')),
+      body: body,
     );
   }
 
   Widget _buildPushToken() {
     return ListTile(
       title: Text(l10n.pushToken),
-      trailing: IconButton(
+      trailing: IconButton(tooltip: libL10n.copy, 
         icon: const Icon(Icons.copy),
         alignment: Alignment.centerRight,
         padding: EdgeInsets.zero,
         onPressed: () {
-          if (_pushToken.value != null) {
-            Pfs.copy(_pushToken.value!);
-            context.showSnackBar(l10n.success);
+          final val = _pushToken.value;
+          if (val != null) {
+            Pfs.copy(val);
+            _showCopyResult(true);
           } else {
-            context.showSnackBar(l10n.getPushTokenFailed);
+            _showCopyResult(false);
           }
         },
       ),
       subtitle: FutureWidget<String?>(
-        future: getToken(),
-        loading: Text(l10n.gettingToken),
-        error: (error, trace) => Text('${l10n.error}: $error'),
+        future: _pushTokenFuture,
+        loading: const Text('...'),
+        error: (error, trace) => Text('${libL10n.error}: $error'),
         success: (text) {
           _pushToken.value = text;
           return Text(
-            text ?? l10n.nullToken,
+            text ?? 'null',
             style: UIs.textGrey,
             overflow: TextOverflow.ellipsis,
             maxLines: 1,
           );
         },
       ),
+    );
+  }
+
+  /// One switch for every Live Activity this app raises.
+  ///
+  /// Off by default, and a change of behaviour: one used to appear whenever a
+  /// terminal connected, with nothing to stop it. What it shows — a server's
+  /// name, and the state of a connection to it — is readable without unlocking
+  /// the phone, so it is opted into rather than out of.
+  ///
+  /// The subtitle carries the system's answer as well as the app's, because
+  /// they fail identically from the user's side: the switch is on, nothing
+  /// appears, and only one of the two places says why.
+  Widget _buildLiveActivity() {
+    return ListTile(
+      title: Text(l10n.liveActivity),
+      subtitle: FutureWidget<bool>(
+        future: _liveActivityAvailableFuture,
+        loading: Text(l10n.liveActivityTip, style: UIs.textGrey),
+        error: (e, _) => Text('${libL10n.error}: $e', style: UIs.textGrey),
+        success: (available) => Text(
+          available == true
+              ? l10n.liveActivityTip
+              : l10n.liveActivitySystemDisabled,
+          style: UIs.textGrey,
+        ),
+      ),
+      trailing: StoreSwitch(prop: Stores.setting.liveActivity),
     );
   }
 
@@ -80,50 +150,103 @@ class _IOSSettingsPageState extends State<IOSSettingsPage> {
   }
 
   Widget _buildWatchApp() {
-    return FutureWidget(
-      future: () async {
-        if (!await wc.isPaired) {
-          return null;
-        }
-        return await wc.applicationContext;
-      }(),
-      loading: UIs.centerLoading,
-      error: (e, trace) {
-        Loggers.app.warning('WatchOS error', e, trace);
-        return ListTile(
-          title: const Text('Watch app'),
-          subtitle: Text('${l10n.error}: $e', style: UIs.textGrey),
-        );
-      },
-      success: (ctx) {
-        if (ctx == null) {
-          return ListTile(
-            title: const Text('Watch app'),
-            subtitle: Text(l10n.watchNotPaired, style: UIs.textGrey),
-          );
-        }
-        return ListTile(
-          title: const Text('Watch app'),
-          trailing: const Icon(Icons.keyboard_arrow_right),
-          onTap: () async => _onTapWatchApp(ctx),
-        );
-      },
+    // What the watch will actually show, which is every monitor server bar the
+    // ones held back. Counted rather than taken from the exclusion list's
+    // length: an id outlives the monitor configuration that made it relevant,
+    // and `buildPayload` already skips those — so a raw length is a number the
+    // watch never agrees with.
+    final count = WatchSync.syncedServerIds().length;
+    return ListTile(
+      title: const Text('Watch app'),
+      // What the tile is for, which does not depend on whether a watch has
+      // turned up: the exclusions are stored here either way. Only a watch
+      // that is missing, or a lookup that failed, displaces it — both are
+      // things the reader can act on, and neither is worth a second line.
+      subtitle: FutureWidget<bool>(
+        future: _watchPairedFuture,
+        loading: Text(l10n.watchServers, style: UIs.textGrey),
+        error: (e, _) => Text('${libL10n.error}: $e', style: UIs.textGrey),
+        success: (paired) => Text(
+          paired == true ? l10n.watchServers : l10n.watchNotPaired,
+          style: UIs.textGrey,
+        ),
+      ),
+      // Shown whether or not a watch is paired, since it counts what would be
+      // sent to one rather than what a watch is currently showing.
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('$count / ${_monitorServers.length}', style: UIs.textGrey),
+          UIs.width7,
+          const Icon(Icons.keyboard_arrow_right),
+        ],
+      ),
+      onTap: _onTapWatchApp,
     );
   }
+}
 
-  void _onTapWatchApp(Map<String, dynamic> map) async {
-    final urls = Map<String, String>.from(map['urls'] as Map? ?? {});
-    final result = await AppRoutes.kvEditor(data: urls).go(context);
-    if (result == null || result! is Map<String, String>) return;
+extension _Actions on _IosSettingsPageState {
+  /// Servers the watch can actually load: it talks to a monitor agent over
+  /// HTTP and has no SSH client of its own.
+  static bool _watchable(Spi spi) => spi.monitor != null;
 
-    try {
-      await wc.updateApplicationContext({'urls': result});
-    } catch (e, trace) {
-      context.showRoundDialog(
-        title: l10n.error,
-        child: Text('${l10n.save}:\n$e'),
-      );
-      Loggers.app.warning('Update watch config failed', e, trace);
+  List<Spi> get _monitorServers => Stores.server.fetch().where(_watchable).toList();
+
+  void _onTapWatchApp() async {
+    final servers = _monitorServers;
+    if (servers.isEmpty) {
+      Toast.show(l10n.watchNoMonitorServer);
+      return;
     }
+
+    final excluded = Stores.setting.watchExcludedServerIds.fetch().toSet();
+    final picked = await pickServers(
+      context,
+      title: l10n.watchServers,
+      where: (_, spi) => _watchable(spi),
+      initial: [
+        for (final e in servers)
+          if (!excluded.contains(e.id)) e.id,
+      ],
+      actions: [
+        TextButton(
+          onPressed: () => context.showSheet(
+            title: l10n.watchServers,
+            child: Text(l10n.watchServersTip),
+          ),
+          child: Text(libL10n.note),
+        ),
+      ],
+    );
+    if (picked == null) return;
+
+    final offered = servers.map((e) => e.id).toSet();
+    final shown = picked.map((e) => e.id).toSet();
+    // Only servers that were on offer are decided here, in both directions.
+    // An id the picker never showed — one whose monitor configuration was
+    // removed while this page was open — has no business being added to the
+    // list by the act of not being ticked in a dialog it was absent from, and
+    // no business being *removed* from it either: it would silently come back
+    // to the watch the moment it had an agent again.
+    final kept = Stores.setting.watchExcludedServerIds
+        .fetch()
+        .where((id) => !offered.contains(id));
+    final next = [
+      ...kept,
+      ...offered.where((id) => !shown.contains(id)),
+    ];
+    await WatchSync.instance.updateExclusions(next);
+    _refresh();
   }
+}
+
+/// The APNs token, asking for notification permission first: showing it is
+/// what this page is for, and iOS issues none without.
+Future<String?> _requestPushToken() async {
+  if (!isIOS) return null;
+  final instance = ApnsToken()..requestPermission();
+  // Until the permission dialog is closed.
+  await instance.onIosSettingsRegistered.first;
+  return await instance.getToken();
 }

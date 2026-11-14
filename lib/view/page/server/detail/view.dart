@@ -1,878 +1,835 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:extended_image/extended_image.dart';
-import 'package:fl_chart/fl_chart.dart';
 import 'package:fl_lib/fl_lib.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:icons_plus/icons_plus.dart';
-import 'package:provider/provider.dart';
-import 'package:toolbox/core/extension/context/locale.dart';
-import 'package:toolbox/data/model/app/server_detail_card.dart';
-import 'package:toolbox/data/model/app/shell_func.dart';
-import 'package:toolbox/data/model/server/battery.dart';
-import 'package:toolbox/data/model/server/cpu.dart';
-import 'package:toolbox/data/model/server/disk.dart';
-import 'package:toolbox/data/model/server/dist.dart';
-import 'package:toolbox/data/model/server/net_speed.dart';
-import 'package:toolbox/data/model/server/nvdia.dart';
-import 'package:toolbox/data/model/server/sensors.dart';
-import 'package:toolbox/data/model/server/server_private_info.dart';
-import 'package:toolbox/data/model/server/system.dart';
-import 'package:toolbox/data/res/store.dart';
-import 'package:toolbox/view/widget/server_func_btns.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:server_box/core/extension/context/locale.dart';
+import 'package:server_box/core/route.dart';
+import 'package:server_box/data/model/app/feature.dart';
+import 'package:server_box/data/model/app/server_detail_card.dart';
+import 'package:server_box/data/model/app/tab.dart';
+import 'package:server_box/data/model/server/server.dart';
+import 'package:server_box/data/model/server/status/battery.dart';
+import 'package:server_box/data/model/server/status/disk_smart.dart';
+import 'package:server_box/data/model/server/status/gpu.dart';
+import 'package:server_box/data/model/server/status/sensors.dart';
+import 'package:server_box/data/model/server/system.dart';
+import 'package:server_box/data/model/server/try_limiter.dart';
+import 'package:server_box/data/provider/app/session_requests.dart';
+import 'package:server_box/data/provider/bmc/bmc.dart';
+import 'package:server_box/data/provider/server/all.dart';
+import 'package:server_box/data/provider/server/metric.dart';
+import 'package:server_box/data/provider/server/reading_fmt.dart';
+import 'package:server_box/data/provider/server/single.dart';
+import 'package:server_box/data/provider/server/web_apps.dart';
+import 'package:server_box/data/res/chart_palette.dart';
+import 'package:server_box/data/res/url.dart';
+import 'package:server_box/data/store/stores.dart';
+import 'package:server_box/src/rust/api/bmc.dart';
+import 'package:server_box/view/page/server/bmc/common.dart';
+import 'package:server_box/view/page/server/bmc/drives.dart';
+import 'package:server_box/view/page/server/bmc/logs.dart';
+import 'package:server_box/view/page/server/card/chart_hero.dart';
+import 'package:server_box/view/page/server/card/name_hero.dart';
+import 'package:server_box/view/page/server/card/notices.dart';
+import 'package:server_box/view/page/server/card/sizes.dart';
+import 'package:server_box/view/page/server/chart.dart';
+import 'package:server_box/view/page/server/detail/bar_actions.dart';
+import 'package:server_box/view/page/server/detail/focus_parts.dart';
+import 'package:server_box/view/page/server/detail/info_card.dart';
+import 'package:server_box/view/page/server/detail/metric_devices.dart';
+import 'package:server_box/view/page/server/detail/metric_model.dart';
+import 'package:server_box/view/page/server/detail/readout.dart';
+import 'package:server_box/view/page/server/detail/window_gaps.dart';
+import 'package:server_box/view/page/server/edit/edit.dart';
+import 'package:server_box/view/page/server/metric_row.dart';
+import 'package:server_box/view/page/server/state_ui.dart';
+import 'package:server_box/view/page/server/text_scale.dart';
+import 'package:server_box/view/page/server/trust_cert.dart';
+import 'package:server_box/view/page/server/widget/server_func_btns.dart';
+import 'package:server_box/view/page/web_apps/status.dart';
+import 'package:server_box/view/widget/built_from.dart';
 
-import '../../../../core/route.dart';
-import '../../../../data/model/server/server.dart';
-import '../../../../data/provider/server.dart';
+part 'bmc.dart';
+part 'extra_cards.dart';
+part 'notices.dart';
+part 'range.dart';
+part 'readings.dart';
+part 'web_apps.dart';
 
-part 'misc.dart';
+class ServerDetailPage extends ConsumerStatefulWidget {
+  final SpiRequiredArgs args;
 
-class ServerDetailPage extends StatefulWidget {
-  const ServerDetailPage({super.key, required this.spi});
+  /// Whether this is a page of its own or the inside of one.
+  ///
+  /// The server tab grows a card into this rather than pushing it, so there is
+  /// already a bar over it carrying the way back and the switcher between
+  /// machines — and a second one under it would be the page saying its own
+  /// name twice.
+  final bool bare;
 
-  final ServerPrivateInfo spi;
+  /// How far the card that is becoming this page has got, or null when this
+  /// page was not arrived at that way.
+  ///
+  /// What it drives is everything the card has no counterpart for — the facts
+  /// beside the readings, the tables under them. Those used to be built the
+  /// moment the movement ended, so a card grew into a page and then the page
+  /// filled in, which is two arrivals for one tap. On this they come in while
+  /// the chart is still growing.
+  final Animation<double>? entrance;
+
+  /// Whether what the card draws is this page's to draw.
+  ///
+  /// False while the card is still the one drawing it: the two are the same
+  /// widgets in the same boxes, so both on screen at once is the same thing
+  /// drawn twice. The block is still laid out — what is beside and below it is
+  /// placed against it — but nothing of it is painted.
+  ///
+  /// Which blocks that is depends on the machine — the readings, or the notice
+  /// a card that failed carries instead — and is asked per block, of the card's
+  /// own definitions; see `_handed`.
+  final bool readingsShowing;
+
+  const ServerDetailPage({
+    super.key,
+    required this.args,
+    this.bare = false,
+    this.entrance,
+    this.readingsShowing = true,
+  });
 
   @override
-  State<ServerDetailPage> createState() => _ServerDetailPageState();
+  ConsumerState<ServerDetailPage> createState() => _ServerDetailPageState();
+
+  static const route = AppRouteArg(
+    page: ServerDetailPage.new,
+    path: '/servers/detail',
+  );
 }
 
-class _ServerDetailPageState extends State<ServerDetailPage>
+/// What the grid keeps clear below its last card, so the bar is never over
+/// something that cannot be scrolled out from under it.
+///
+/// Kept even when this page is not the one drawing the bar: [ServerDetailPage
+/// .bare] means the tab floats it above, over the same content.
+const _kFuncBarInset = kFuncBarInset;
+
+/// The entries the function row draws for [srv], and whether any can be used.
+///
+/// One answer for the page and for the tab that hosts it: a machine with
+/// nothing to show yet keeps the row, greyed, so the positions stay put while
+/// it connects — see `_buildNothingYet`.
+({List<ServerFuncEntry> entries, bool any}) serverDetailFuncBtns(
+  ServerState srv,
+) {
+  final entries = serverFuncBtnsFor(srv.spi, srv.agentAccess);
+  if (!serverDetailHasContent(srv)) {
+    return (
+      entries: [for (final e in entries) (btn: e.btn, available: false, reason: null)],
+      any: false,
+    );
+  }
+  return (entries: entries, any: entries.any((e) => e.available));
+}
+
+class _ServerDetailPageState extends ConsumerState<ServerDetailPage>
     with SingleTickerProviderStateMixin {
-  late final _cardBuildMap = Map.fromIterables(
-    ServerDetailCards.names,
-    [
-      _buildAbout,
-      _buildCPUView,
-      _buildMemView,
-      _buildSwapView,
-      _buildGpuView,
-      _buildDiskView,
-      _buildNetView,
-      _buildSensors,
-      _buildTemperature,
-      _buildBatteries,
-      _buildPve,
-      _buildCustom,
-    ],
-  );
+  /// The cards that are not one of the metrics the page is built around.
+  ///
+  /// CPU, memory, swap, disk, network, GPU load, the hottest sensor and the
+  /// battery are no longer cards: they are the chart at the top and the rows
+  /// under it, which is what this page came to show. What is left here is
+  /// everything that is a table or a one-off reading rather than a value with
+  /// a line over time — including what those metrics carry beside their
+  /// number, like the processes holding a GPU's memory.
+  late final _cardBuildMap =
+      <ServerDetailCards, Widget? Function(ServerState)>{
+        ServerDetailCards.gpu: _buildGpuView,
+        ServerDetailCards.smart: _buildDiskSmart,
+        ServerDetailCards.sensor: _buildSensors,
+        ServerDetailCards.battery: _buildBatteries,
+        ServerDetailCards.pve: _buildPve,
+        ServerDetailCards.bmc: _buildBmc,
+        ServerDetailCards.webApps: _buildWebApps,
+        ServerDetailCards.custom: _buildCustomCmd,
+      };
 
-  late MediaQueryData _media;
-  final List<String> _cardsOrder = [];
+  late Size _size;
 
-  final _netSortType = ValueNotifier(_NetSortType.device);
-  late final _collapse = Stores.setting.collapseUIDefault.fetch();
-  late final _textFactor = TextScaler.linear(Stores.setting.textFactor.fetch());
+  /// Which cards the user has switched off, by [ServerDetailCards.name].
+  ///
+  /// There is no order any more: the metrics are the page and the rest follow
+  /// in the order they are declared in. What is left of the setting is whether
+  /// a card is drawn at all.
+  final _cardsOff = <String>{};
+
+  /// The metric drawn in full. The rest are a row each.
+  ///
+  /// The same choice the card in the list draws by, read through
+  /// [ServerPromoted]: this page and that card are one structure at two sizes,
+  /// so a reading promoted on either has to be the one promoted on the other.
+  /// CPU when nothing has been chosen, which is the reading every machine has.
+  ///
+  /// Listened to by the readings alone — see `_buildMetrics`. It was a field
+  /// changed through `setState`, so pressing a row built the whole page again:
+  /// every card of facts and every table beside the readings, none of which
+  /// is about which reading is drawn in full. That was most of a frame, and
+  /// pressing one row after another was a run of frames that did not fit.
+  late final _focus = ValueNotifier(_storedFocus);
+
+  ServerMetricKind get _storedFocus =>
+      ServerPromoted.of(widget.args.spi.id) ?? ServerMetricKind.cpu;
+
+  /// Which of a metric's devices the chart draws, where the reader has said.
+  /// Absent means [MetricDevices.defaults], which is what a page opens on.
+  final _devicePick = <ServerMetricKind, Set<String>>{};
+
+  /// Whether the CPU's threads are drawn under its chart. Closed until asked:
+  /// most of the time the total is the question.
+  var _coresOpen = false;
+
+  /// The window the chart draws when the reader named one outright, and what
+  /// came back for it.
+  ///
+  /// Wins over [_range] while it is set: the presets are the common windows,
+  /// not the only ones an agent can answer for, and what it keeps is the
+  /// agent's to say — see `MonitorCapabilities.historyFrom`.
+  ({DateTime from, DateTime to})? _custom;
+  HistoryRangeAnswer? _customAnswer;
+  // ignore: prefer_final_fields — set through `_rebuild` from an extension.
+  bool _customBusy = false;
+
+  /// Which server, and which request, the history on this page belongs to.
+  ///
+  /// Bumped when a request supersedes another and when the page is handed a
+  /// different server: both make every answer still in flight one about
+  /// something that is no longer on screen. Without it the slower of two
+  /// window requests overwrites the newer one, and switching servers in a pane
+  /// draws the previous machine's readings under this machine's name.
+  int _historyGeneration = 0;
+
+  /// The window the chart draws, and what has been fetched for it.
+  HistoryRange _range = HistoryRange.live;
+  /// What a range answered, and when it was asked.
+  ///
+  /// The instant is what the axis is anchored to: a window kept for the length
+  /// of a visit would otherwise slide forward against a chart that is not
+  /// being refetched, and the gap at its end would grow without anything
+  /// having happened.
+  final _rangeWindows = <HistoryRange, HistoryRangeAnswer>{};
+  final _rangeBusy = <HistoryRange>{};
+
+  final _settings = Stores.setting;
+
+  /// Shared by the grid and the bar floating over it, which is how the bar
+  /// knows to get out of the way.
+  final _scrollCtrl = ScrollController();
+
+  /// The card the rows promote a metric into, so that tapping one can bring it
+  /// back on screen — see `_revealFocus`.
+  final _focusCardKey = GlobalKey();
+  late final _collapse = _settings.collapseUIDefault.fetch();
+
+  /// Which cards are open, by their `cardKey`.
+  ///
+  /// Held by the page rather than by each card, because a card does not
+  /// outlive a refresh: it is rebuilt by anything that changes the list or how
+  /// it is laid out (a status arriving and with it the logo, the error card
+  /// appearing, a window resize changing the column count), and a card that
+  /// decided for itself would re-apply its default each time — which is what
+  /// made the About card spring open on every poll.
+  final _cardsOpen = <String, bool>{};
+
+  /// Whether the card [key] is open, opened on first use if [initially].
+  bool _cardExpanded(String key, bool initially) =>
+      _cardsOpen.putIfAbsent(key, () => initially);
+
+  void _toggleCard(String key) => _cardsOpen[key] = !(_cardsOpen[key] ?? false);
+
+  /// Which cards list every row rather than the first [kReadoutCardRows], by
+  /// their `cardKey`; kept here for the reason [_cardsOpen] is.
+  final _cardsFull = <String>{};
+
+  void _toggleFull(String key) =>
+      _cardsFull.contains(key) ? _cardsFull.remove(key) : _cardsFull.add(key);
+
+  /// What the parts of this page held in extensions change state through:
+  /// `setState` is protected, and an extension is not a subclass.
+  void _rebuild(VoidCallback update) {
+    if (mounted) setState(update);
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _media = MediaQuery.of(context);
+    _size = MediaQuery.sizeOf(context);
+  }
+
+  /// The page is a widget, not a route: choosing another server in a pane
+  /// hands this same state a different one. Everything here that is about a
+  /// particular machine has to go with it — the windows fetched for it, the
+  /// devices picked out of it — and every request still in flight has to stop
+  /// counting.
+  @override
+  void didUpdateWidget(ServerDetailPage old) {
+    super.didUpdateWidget(old);
+    if (widget.args.spi.id == old.args.spi.id) return;
+    _historyGeneration++;
+    setState(() {
+      _custom = null;
+      _customAnswer = null;
+      _customBusy = false;
+      _rangeWindows.clear();
+      _rangeBusy.clear();
+      _range = HistoryRange.live;
+      _devicePick.clear();
+    });
+    // Which reading leads is said per machine, like the rest of these.
+    _focus.value = _storedFocus;
+    // What `initState` does for the server the page opened on: this one's
+    // buffer is empty until its own poll fills it, and the agent has the part
+    // that happened before the page arrived.
+    unawaited(
+      ref.read(serverProvider(widget.args.spi.id).notifier).seedHistory(),
+    );
   }
 
   @override
   void initState() {
     super.initState();
-    final order = Stores.setting.detailCardOrder.fetch();
-    order.removeWhere((e) => !ServerDetailCards.names.contains(e));
-    _cardsOrder.addAll(order);
+    _cardsOff.addAll(_settings.detailCardDisabled.fetch());
+
+    // Prefill the trend buffer from whatever history the source already has,
+    // so the chart cards aren't blank on a freshly opened page. A no-op for
+    // sources without ServerCapabilities.storedHistory (i.e. SSH), which
+    // simply accumulate from here on.
+    unawaited(
+      ref
+          .read(serverProvider(widget.args.spi.id).notifier)
+          .seedHistory(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ServerProvider>(builder: (_, provider, __) {
-      final s = widget.spi.server;
-      if (s == null) {
-        return Scaffold(
-          body: Center(
-            child: Text(l10n.noClient),
-          ),
-        );
-      }
-      return _buildMainPage(s);
-    });
+    final serverState = ref.watch(serverProvider(widget.args.spi.id));
+    if (!_hasContent(serverState)) {
+      return _buildNothingYet(serverState);
+    }
+    return _buildMainPage(serverState);
   }
 
-  Widget _buildMainPage(Server si) {
-    final buildFuncs = !Stores.setting.moveOutServerTabFuncBtns.fetch();
-    final logoUrl = si.spi.custom?.logoUrl ??
-        Stores.setting.serverLogoUrl.fetch().selfIfNotNullEmpty;
-    final buildLogo = logoUrl != null;
-    final children = [
-      if (buildLogo)
-        _buildLogo(logoUrl, si.status.more[StatusCmdType.sys]?.dist),
-      if (buildFuncs) ServerFuncBtns(spi: widget.spi),
-    ];
-    for (final card in _cardsOrder) {
-      final buildFunc = _cardBuildMap[card];
-      if (buildFunc != null) {
-        children.add(buildFunc(si.status));
-      }
-    }
+  /// The page around the readings, or nothing when something else is the page.
+  ///
+  /// [ServerDetailPage.bare] is the server tab having grown a card into this:
+  /// the bar is already up there and so is the window's own inset, so a second
+  /// of each would be a page inside a page.
+  Widget _hosted(ServerState srv, Widget body) {
+    if (widget.bare) return body;
     return Scaffold(
-      appBar: _buildAppBar(si),
-      body: ListView(
-        padding: EdgeInsets.only(
-          left: 13,
-          right: 13,
-          bottom: _media.padding.bottom + 77,
+      // Says the machine's name and nothing about its state, so it is built
+      // when that is edited rather than on every poll.
+      appBar: PreferredSize(
+        preferredSize: CustomAppBar.calcPreferredSize(),
+        child: BuiltFrom(
+          [srv.spi, PaneScope.closeDetailOf(context) != null, context.isDark],
+          builder: (_) => _buildAppBar(srv),
         ),
-        children: children,
       ),
+      // The tab's body carries this already, and a page pushed on its own is
+      // outside that. It was a scaler handed to five of this page's texts
+      // instead, which replaces the system's for those five: on a phone with
+      // its text turned down they were a fifth larger than the rest of the
+      // card they were in.
+      body: SafeArea(child: ServerTextScale(child: body)),
     );
   }
 
-  CustomAppBar _buildAppBar(Server si) {
-    return CustomAppBar(
-      title: Text(si.spi.name, style: UIs.text18),
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.edit),
-          onPressed: () async {
-            final delete = await AppRoutes.serverEdit(spi: si.spi).go(context);
-            if (delete == true) {
-              context.pop();
-            }
-          },
-        )
-      ],
-    );
-  }
+  bool _hasContent(ServerState state) => serverDetailHasContent(state);
 
-  Widget _buildLogo(String logoUrl, Dist? dist) {
-    if (dist != null) {
-      logoUrl = logoUrl
-          .replaceFirst('{DIST}', dist.name)
-          .replaceFirst('{BRIGHT}', context.isDark ? 'dark' : 'light');
-    }
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 13),
-      child: ExtendedImage.network(
-        logoUrl,
-        cache: true,
-        height: _media.size.height * 0.2,
-      ),
-    );
-  }
+  Widget _buildMainPage(ServerState srv) {
+    // What this connection can actually serve, asked once and used twice: to
+    // decide whether the row is drawn at all, and then as the row's content.
+    //
+    // Asked of the entries rather than of one capability, so the row and the
+    // Files tab answer the same question.
+    // Whether any of them can be used. An entry this connection cannot serve
+    // is still on the row, dimmed and last; a row of nothing but those is not
+    // a row, and what belongs in its place is the explanation below.
+    final (entries: funcBtns, any: buildFuncs) = serverDetailFuncBtns(srv);
+    final logo = _buildLogo(srv);
 
-  Widget _buildAbout(ServerStatus ss) {
-    return CardX(
-      child: ExpandTile(
-        leading: const Icon(MingCute.information_fill, size: 20),
-        initiallyExpanded: _getInitExpand(ss.more.entries.length),
-        title: Text(l10n.about),
-        childrenPadding: const EdgeInsets.symmetric(
-          horizontal: 17,
-          vertical: 11,
-        ),
-        children: ss.more.entries
-            .map(
-              (e) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(e.key.i18n, style: UIs.text13),
-                    Text(e.value, style: UIs.text13Grey)
-                  ],
-                ),
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-
-  Widget _buildCPUView(ServerStatus ss) {
-    final percent = ss.cpu.usedPercent(coreIdx: 0).toInt();
-    final details = [
-      _buildDetailPercent(ss.cpu.user, 'user'),
-      UIs.width13,
-      _buildDetailPercent(ss.cpu.idle, 'idle')
+    // Everything that is not one of the metrics: a table or a one-off reading,
+    // which is what makes it a card rather than a row.
+    // A layer each, so a poll paints the ones that changed rather than all of
+    // them — see `_buildMetricRow`.
+    final cards = <Widget>[
+      for (final entry in _cardBuildMap.entries)
+        if (!_cardsOff.contains(entry.key.name))
+          if (entry.value(srv) case final card?) RepaintBoundary(child: card),
     ];
-    if (ss.system == SystemType.linux) {
-      details.addAll([
-        UIs.width13,
-        _buildDetailPercent(ss.cpu.sys, 'sys'),
-        UIs.width13,
-        _buildDetailPercent(ss.cpu.iowait, 'io'),
-      ]);
-    }
+    // Beside the readings rather than under them, in the column that says how
+    // this machine is reached: the readings are fine and this is about the row
+    // of things to do, so it belongs with the facts about the connection and
+    // not at the end of what the page came to show. Nothing is drawn while the
+    // func bar is there — this only explains a bar that is missing.
+    final noAccess = buildFuncs ? null : _buildNoRemoteAccessCard(srv);
 
-    return CardX(
-      child: ExpandTile(
-        title: Align(
-          alignment: Alignment.centerLeft,
-          child: _buildAnimatedText(
-            ValueKey(percent),
-            '$percent%',
-            UIs.text27,
-          ),
-        ),
-        childrenPadding: const EdgeInsets.symmetric(vertical: 13),
-        initiallyExpanded: _getInitExpand(1),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: details,
-        ),
-        children: Stores.setting.cpuViewAsProgress.fetch()
-            ? _buildCPUProgress(ss.cpu)
-            : [
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 17, vertical: 13),
-                  child: SizedBox(
-                    height: 137,
-                    width: _media.size.width - 26 - 34,
-                    child: _buildLineChart(
-                      ss.cpu.spots,
-                      //ss.cpu.rangeX,
-                      tooltipPrefix: 'CPU',
-                    ),
-                  ),
+    // The readings for each of the two shapes this page takes, kept between
+    // the builder's runs and dropped whenever this method is called again.
+    //
+    // A `LayoutBuilder` runs its builder again whenever anything inside it is
+    // dirty, not only when its constraints change. While the card that became
+    // this page is still growing, the entrance below is dirty on every frame —
+    // so without this the whole page, chart and tables included, was built
+    // afresh sixty times a second to be moved a few points and faded.
+    final byWidth = <bool, Widget>{};
+
+    return _hosted(
+      srv,
+      Stack(
+          children: [
+            LayoutBuilder(
+              builder: (_, cons) => byWidth.putIfAbsent(
+                // Of the room this page has, not of the window: inside a pane
+                // it is the pane that has to hold two columns.
+                cons.maxWidth >= ServerCardSizes.columnsWidth,
+                () => _buildReadings(
+                  srv,
+                  logo: logo,
+                  cards: cards,
+                  bottomInset: buildFuncs ? _kFuncBarInset : 0,
+                  noAccess: noAccess,
+                  wide: cons.maxWidth >= ServerCardSizes.columnsWidth,
                 ),
-              ],
-      ),
-    );
-  }
-
-  Widget _buildDetailPercent(double percent, String timeType) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Text(
-          '${percent.toStringAsFixed(1)}%',
-          style: UIs.text12,
-          textScaler: _textFactor,
-        ),
-        Text(
-          timeType,
-          style: UIs.text12Grey,
-          textScaler: _textFactor,
-        ),
-      ],
-    );
-  }
-
-  List<Widget> _buildCPUProgress(Cpus cs) {
-    const kMaxColumn = 2;
-    const kRowThreshold = 4;
-    const kCoresCount = kMaxColumn * kRowThreshold;
-    final children = <Widget>[];
-
-    if (cs.coresCount > kCoresCount) {
-      final rows = cs.coresCount ~/ kMaxColumn;
-      for (var i = 0; i < rows; i++) {
-        final rowChildren = <Widget>[];
-        for (var j = 0; j < kMaxColumn; j++) {
-          final idx = i * kMaxColumn + j + 1;
-          if (idx >= cs.coresCount) break;
-          if (Stores.setting.displayCpuIndex.fetch()) {
-            rowChildren.add(Text('$idx', style: UIs.text13Grey));
-          }
-          rowChildren.add(
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 3),
-                child: _buildProgress(cs.usedPercent(coreIdx: idx)),
               ),
             ),
-          );
-        }
-        rowChildren.joinWith(UIs.width7);
-        children.add(
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 17),
-            child: Row(
-              children: rowChildren,
-            ),
-          ),
+            // Pinned above the readings rather than scrolling with them: it is
+            // about the page, and what it says — that the first answer is on
+            // its way — stops being true the moment it arrives.
+            if (serverNeverSampled(srv))
+              const Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: LinearProgressIndicator(
+                  minHeight: 3,
+                  backgroundColor: Colors.transparent,
+                ),
+              ),
+            // Over the page rather than at the top of it. These act on the
+            // server, not on any one card, so they belong within reach the
+            // whole way down instead of scrolling off after the first chart.
+            //
+            // The tab hosts its own when it hosts this page — see
+            // [ServerDetailPage.bare].
+            if (buildFuncs && !widget.bare)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: HideOnScroll(
+                  controller: _scrollCtrl,
+                  // A third of this page's elements, and about the machine
+                  // rather than about what it is doing: the same buttons on
+                  // every poll.
+                  child: BuiltFrom(
+                    [srv.spi, ...funcBtns],
+                    builder: (_) => ServerFuncBar(spi: srv.spi, btns: funcBtns),
+                  ),
+                ),
+              ),
+          ],
+        ),
+    );
+  }
+
+  /// Something the card this page grew out of has no counterpart for, coming
+  /// in while that card is still growing.
+  ///
+  /// Moved rather than laid out differently: what this wraps sits where it
+  /// will end up from the first frame, so the readings it is measured against
+  /// never shift because it arrived. Nothing at all when the page was not
+  /// arrived at that way — see [ServerDetailPage.entrance].
+  ///
+  /// The curve leaves at rest and gathers pace, which is what keeps it out of
+  /// the way of the cards the grid is still fading out underneath.
+  Widget _entering(Widget child, {required Offset from}) {
+    final entrance = widget.entrance;
+    if (entrance == null) return child;
+    // Faded in where it is, with less motion asked for.
+    if (context.reduceMotion) from = Offset.zero;
+    return AnimatedBuilder(
+      animation: entrance,
+      // Its own layer, so what happens each frame is an offset and an alpha on
+      // a picture that is already drawn. Without it the whole column — every
+      // card of facts, every table — is rasterised again for each frame of the
+      // movement.
+      child: RepaintBoundary(child: child),
+      builder: (_, child) {
+        final t = Curves.easeInOutCubic.transform(
+          entrance.value.clamp(0.0, 1.0),
         );
-      }
-    } else {
-      for (var i = 0; i < cs.coresCount; i++) {
-        if (i == 0) continue;
-        children.add(
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 17),
-            child: _buildProgress(cs.usedPercent(coreIdx: i)),
-          ),
-        );
-      }
-    }
-
-    return children;
-  }
-
-  Widget _buildProgress(double percent) {
-    if (percent > 100) percent = 100;
-    final percentWithinOne = percent / 100;
-    return LinearProgressIndicator(
-      value: percentWithinOne,
-      minHeight: 7,
-      backgroundColor: UIs.halfAlpha,
-      color: UIs.primaryColor,
-    );
-  }
-
-  Widget _buildMemView(ServerStatus ss) {
-    final free = ss.mem.free / ss.mem.total * 100;
-    final avail = ss.mem.availPercent * 100;
-    final used = ss.mem.usedPercent * 100;
-    final usedStr = used.toStringAsFixed(0);
-
-    return CardX(
-      child: Padding(
-        padding: UIs.roundRectCardPadding,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    _buildAnimatedText(
-                      ValueKey(usedStr),
-                      '$usedStr%',
-                      UIs.text27,
-                    ),
-                    UIs.width7,
-                    Text(
-                      'of ${(ss.mem.total * 1024).bytes2Str}',
-                      style: UIs.text13Grey,
-                    )
-                  ],
-                ),
-                Row(
-                  children: [
-                    _buildDetailPercent(free, 'free'),
-                    UIs.width13,
-                    _buildDetailPercent(avail, 'avail'),
-                  ],
-                ),
-              ],
-            ),
-            UIs.height13,
-            _buildProgress(used)
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSwapView(ServerStatus ss) {
-    if (ss.swap.total == 0) return UIs.placeholder;
-    final used = ss.swap.usedPercent * 100;
-    final cached = ss.swap.cached / ss.swap.total * 100;
-    return CardX(
-      child: Padding(
-        padding: UIs.roundRectCardPadding,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Text('${used.toStringAsFixed(0)}%', style: UIs.text27),
-                    UIs.width7,
-                    Text(
-                      'of ${(ss.swap.total * 1024).bytes2Str} ',
-                      style: UIs.text13Grey,
-                    )
-                  ],
-                ),
-                _buildDetailPercent(cached, 'cached'),
-              ],
-            ),
-            UIs.height13,
-            _buildProgress(used)
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGpuView(ServerStatus ss) {
-    if (ss.nvidia == null || ss.nvidia?.isEmpty == true) return UIs.placeholder;
-    final children = ss.nvidia?.map((e) => _buildGpuItem(e)).toList() ?? [];
-    return CardX(
-      child: ExpandTile(
-        title: const Text('GPU'),
-        leading: const Icon(Icons.memory, size: 17),
-        initiallyExpanded: _getInitExpand(children.length, 3),
-        children: children,
-      ),
-    );
-  }
-
-  Widget _buildGpuItem(NvidiaSmiItem item) {
-    final mem = item.memory;
-    final processes = mem.processes;
-    return ListTile(
-      title: Text(item.name, style: UIs.text13),
-      leading: Text(
-        '${item.percent}%\n${item.temp} °C',
-        style: UIs.text12Grey,
-        textScaler: _textFactor,
-        textAlign: TextAlign.center,
-      ),
-      subtitle: Text(
-        '${item.power} - FAN ${item.fanSpeed}%\n${mem.used} / ${mem.total} ${mem.unit}',
-        style: UIs.text12Grey,
-        textScaler: _textFactor,
-      ),
-      contentPadding: const EdgeInsets.only(left: 17, right: 17),
-      trailing: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            onPressed: () {
-              final height = () {
-                if (processes.length > 5) {
-                  return 5 * 47.0;
-                }
-                return processes.length * 47.0;
-              }();
-              context.showRoundDialog(
-                title: item.name,
-                child: SizedBox(
-                  width: double.maxFinite,
-                  height: height,
-                  child: ListView.builder(
-                    itemCount: processes.length,
-                    itemBuilder: (_, idx) =>
-                        _buildGpuProcessItem(processes[idx]),
-                  ),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => context.pop(),
-                    child: Text(l10n.close),
-                  )
-                ],
-              );
-            },
-            icon: const Icon(Icons.info_outline, size: 17),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGpuProcessItem(NvidiaSmiMemProcess process) {
-    return ListTile(
-      title: Text(
-        process.name,
-        style: UIs.text12,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        textScaler: _textFactor,
-      ),
-      subtitle: Text(
-        'PID: ${process.pid} - ${process.memory} MiB',
-        style: UIs.text12Grey,
-        textScaler: _textFactor,
-      ),
-      trailing: InkWell(
-        onTap: () {
-          context.showRoundDialog(
-            title: '${process.pid}',
-            titleMaxLines: 1,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                UIs.height13,
-                Text('Memory: ${process.memory} MiB'),
-                UIs.height13,
-                Text('Process: ${process.name}')
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => context.pop(),
-                child: Text(l10n.close),
-              )
-            ],
-          );
-        },
-        child: const Icon(Icons.info_outline, size: 17),
-      ),
-    );
-  }
-
-  Widget _buildDiskView(ServerStatus ss) {
-    final children = List.generate(
-        ss.disk.length, (idx) => _buildDiskItem(ss.disk[idx], ss));
-    return CardX(
-      child: ExpandTile(
-        title: Text(l10n.disk),
-        childrenPadding: const EdgeInsets.only(bottom: 7),
-        leading: Icon(ServerDetailCards.disk.icon, size: 17),
-        initiallyExpanded: _getInitExpand(children.length),
-        children: children,
-      ),
-    );
-  }
-
-  Widget _buildDiskItem(Disk disk, ServerStatus ss) {
-    final (read, write) = ss.diskIO.getSpeed(disk.fs);
-    final text = () {
-      final use = '${l10n.used} ${disk.used.kb2Str} / ${disk.size.kb2Str}';
-      if (read == null || write == null) return use;
-      return '$use\n${l10n.read} $read | ${l10n.write} $write';
-    }();
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 5),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                disk.fs,
-                style: UIs.text12,
-                textScaler: _textFactor,
-              ),
-              Text(
-                text,
-                style: UIs.text12Grey,
-                textScaler: _textFactor,
-              )
-            ],
-          ),
-          SizedBox(
-            height: 41,
-            width: 41,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                CircularProgressIndicator(
-                  value: disk.usedPercent / 100,
-                  strokeWidth: 5,
-                  backgroundColor: UIs.halfAlpha,
-                  color: UIs.primaryColor,
-                ),
-                Text('${disk.usedPercent}%', style: UIs.text12Grey)
-              ],
-            ),
-          )
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNetView(ServerStatus ss) {
-    final ns = ss.netSpeed;
-    final children = <Widget>[];
-    if (ns.devices.isEmpty) {
-      children.add(Center(
-        child: Text(
-          l10n.noInterface,
-          style: UIs.text13Grey,
-        ),
-      ));
-    } else {
-      final devices = ns.devices;
-      devices.sort(_netSortType.value.getSortFunc(ns));
-      children.addAll(devices.map((e) => _buildNetSpeedItem(ns, e)));
-    }
-    return CardX(
-      child: ExpandTile(
-        leading: Icon(ServerDetailCards.net.icon, size: 17),
-        title: Row(
-          children: [
-            Text(l10n.net),
-            UIs.width13,
-            ValBuilder(
-              listenable: _netSortType,
-              builder: (val) => InkWell(
-                onTap: () => _netSortType.value = val.next,
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 377),
-                  transitionBuilder: (child, animation) => FadeTransition(
-                    opacity: animation,
-                    child: child,
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.sort, size: 17),
-                      UIs.width7,
-                      Text(
-                        val.name,
-                        style: UIs.text13Grey,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        childrenPadding: const EdgeInsets.only(bottom: 11),
-        initiallyExpanded: _getInitExpand(children.length),
-        children: children,
-      ),
-    );
-  }
-
-  Widget _buildNetSpeedItem(NetSpeed ns, String device) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 17),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                device,
-                style: UIs.text12,
-                textScaler: _textFactor,
-                maxLines: 1,
-                overflow: TextOverflow.fade,
-                textAlign: TextAlign.left,
-              ),
-              Text(
-                '${ns.sizeIn(device: device)} | ${ns.sizeOut(device: device)}',
-                style: UIs.text12Grey,
-                textScaler: _textFactor,
-              )
-            ],
-          ),
-          SizedBox(
-            width: 170,
-            child: Text(
-              '${ns.speedOut(device: device)} ↑\n${ns.speedIn(device: device)} ↓',
-              textAlign: TextAlign.end,
-              style: UIs.text13Grey,
-            ),
-          )
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTemperature(ServerStatus ss) {
-    if (ss.temps.isEmpty) {
-      return UIs.placeholder;
-    }
-    return CardX(
-      child: ExpandTile(
-        title: Text(l10n.temperature),
-        leading: const Icon(Icons.ac_unit, size: 17),
-        initiallyExpanded: _getInitExpand(ss.temps.devices.length),
-        childrenPadding: const EdgeInsets.only(bottom: 7),
-        children: ss.temps.devices
-            .map((key) => _buildTemperatureItem(key, ss.temps.get(key)))
-            .toList(),
-      ),
-    );
-  }
-
-  Widget _buildTemperatureItem(String key, double? val) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 5),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(key, style: UIs.text15),
-          Text('${val?.toStringAsFixed(1)}°C', style: UIs.text13Grey),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBatteries(ServerStatus ss) {
-    if (ss.batteries.isEmpty) {
-      return UIs.placeholder;
-    }
-    return CardX(
-      child: ExpandTile(
-        title: Text(l10n.battery),
-        leading: const Icon(Icons.battery_charging_full, size: 17),
-        childrenPadding: const EdgeInsets.only(bottom: 7),
-        initiallyExpanded: _getInitExpand(ss.batteries.length, 2),
-        children: ss.batteries.map(_buildBatteryItem).toList(),
-      ),
-    );
-  }
-
-  Widget _buildBatteryItem(Battery battery) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 5),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('${battery.name}', style: UIs.text15),
-              Text(
-                '${battery.status.name} - ${battery.cycle}',
-                style: UIs.text13Grey,
-              ),
-            ],
-          ),
-          Text(
-            '${battery.percent?.toStringAsFixed(0)}%',
-            style: UIs.text13Grey,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSensors(ServerStatus ss) {
-    if (ss.sensors.isEmpty) return UIs.placeholder;
-    return CardX(
-      child: ExpandTile(
-        title: Text(l10n.sensors),
-        leading: const Icon(Icons.thermostat, size: 17),
-        childrenPadding: const EdgeInsets.only(bottom: 7),
-        initiallyExpanded: _getInitExpand(ss.sensors.length, 2),
-        children: ss.sensors.map(_buildSensorItem).toList(),
-      ),
-    );
-  }
-
-  Widget _buildSensorItem(SensorItem si) {
-    if (si.summary == null) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 7),
-        child: Text(si.device),
-      );
-    }
-    return InkWell(
-      onTap: () {
-        context.showRoundDialog(
-          title: si.device,
-          child: SingleChildScrollView(
-            child: SimpleMarkdown(
-              data: si.toMarkdown,
-              styleSheet: MarkdownStyleSheet(
-                tableBorder: TableBorder.all(color: Colors.grey),
-                tableHead: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-          ),
+        // The same two layers once it has arrived, rather than the child
+        // handed back bare: that is a different parent at 1 from the one at
+        // anything less, so every card of facts and every table was
+        // unmounted, built and laid out again on the last frame of the way in
+        // and the first of the way back. At 1 neither costs anything — full
+        // opacity paints the child directly, and a translation by zero is an
+        // offset.
+        return Opacity(
+          opacity: t,
+          child: Transform.translate(offset: from * (1 - t), child: child),
         );
       },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 7),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-                child: Column(
+    );
+  }
+
+  /// [child] as the card that became this page has it, or has not.
+  ///
+  /// [byCard] is the card drawing the same widgets in the same boxes, so this
+  /// is laid out — what is beside and below it is placed against it — and
+  /// painted only once the card hands it over, which is
+  /// [ServerDetailPage.readingsShowing]. Otherwise it is something the card
+  /// has no counterpart for, and comes in while the card is still growing —
+  /// see [_entering].
+  ///
+  /// Asked per block rather than once for the page. Held for a card that was
+  /// not drawing it, a block appeared at the handover from nothing: a machine
+  /// that failed after answering keeps its readings on this page and off its
+  /// card, and they arrived in one cut the moment the card stopped moving.
+  Widget _handed(Widget child, {required bool byCard, required Offset from}) {
+    if (!byCard) return _entering(child, from: from);
+    return Opacity(
+      opacity: widget.readingsShowing ? 1 : 0,
+      child: IgnorePointer(ignoring: !widget.readingsShowing, child: child),
+    );
+  }
+
+  /// The readings: one metric drawn in full with the rest as rows, and beside
+  /// them what the machine is and everything that is a table rather than a
+  /// trend.
+  ///
+  /// Two columns only where both fit. Below that the facts go under the rows
+  /// rather than beside them, because a 330pt column takes the chart down to
+  /// something too narrow to read a shape in.
+  Widget _buildReadings(
+    ServerState srv, {
+    required Widget? logo,
+    required List<Widget> cards,
+    required double bottomInset,
+    required bool wide,
+    Widget? noAccess,
+  }) {
+    // Whether the card this page grew out of is drawing each of these — see
+    // [_handed]. Asked of the card's own definitions, so the two never
+    // disagree about who has a block.
+    final cardNotice = ServerNotice.onCard(srv) != null;
+    final cardBody = serverCardHasBody(srv);
+    // Which column the image sits in, which is the whole of what `wide`
+    // changes about it. In two columns it belongs at the head of the facts:
+    // the readings column is what the page came to show and an image above
+    // them pushes every chart down by its own height. One column has no
+    // facts column to put it in, and there it leads the page as before.
+    //
+    // `_buildLogo` is handed the same width either way — the column it is
+    // laid out in — so its height follows. See `ServerCard._full` for the
+    // room the card keeps for it at the handover, which is why that
+    // reservation is a share of the readings column rather than of the card.
+    final logoAtSide = wide && logo != null;
+    final metrics = <Widget>[
+      // From above, the edge it sits against: the card keeps its room and
+      // draws nothing in it — see `ServerCard._full`.
+      if (logo != null && !logoAtSide)
+        _entering(logo, from: const Offset(0, -24)),
+      if (_buildErrCard(srv) case final errCard?)
+        _handed(errCard, byCard: cardNotice, from: const Offset(0, 24)),
+      if (_buildStaleCard(srv) case final stale?)
+        _handed(
+          stale,
+          byCard: serverCardStaleSince(srv) != null,
+          from: const Offset(0, 24),
+        ),
+      _handed(
+        _buildMetrics(srv, wide: wide),
+        byCard: cardBody,
+        from: const Offset(0, 24),
+      ),
+      // Under the readings rather than in the column beside them: these are
+      // tables — sensor rows, GPU processes, SMART attributes — and a 330pt
+      // column is not a width any of them was written for.
+      if (wide) ...[
+        UIs.height13,
+        // From below, because that is the edge it is arriving past.
+        _entering(
+          ServerDetailCardGrid(cards: cards),
+          from: const Offset(0, 24),
+        ),
+      ],
+    ];
+    final asideItems = <Widget>[
+      // No `_entering` of its own: the column below already carries one, and
+      // two nested would compound the movement.
+      if (logoAtSide) logo,
+      ..._buildInfoCards(srv),
+      ?noAccess,
+      if (!wide) ServerDetailCardGrid(cards: cards),
+    ];
+    // In from the side it sits on when there is one, and from below when it is
+    // under the readings instead.
+    final aside = _entering(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: asideItems,
+      ),
+      from: wide ? const Offset(24, 0) : const Offset(0, 24),
+    );
+
+    return SingleChildScrollView(
+      controller: _scrollCtrl,
+      // Match the grid's top inset so the card-to-detail transition does not
+      // introduce a vertical jump.
+      // And the window's foot, which the page runs under.
+      padding: EdgeInsets.fromLTRB(
+        13,
+        4,
+        13,
+        bottomInset + 13 + MediaQuery.paddingOf(context).bottom,
+      ),
+      // Held to a width and centred inside a scroll view that still has the
+      // whole page, so the page scrolls from anywhere over it.
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxWidth: ServerCardSizes.contentMax,
+          ),
+          child: wide
+          ? Row(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  children: [
-                    Text(si.device, style: UIs.text15Bold),
-                    UIs.width7,
-                    Text('(${si.adapter.raw})', style: UIs.text13Grey),
-                  ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: metrics,
+                  ),
                 ),
-                Text(si.summary ?? '', style: UIs.text13Grey),
+                UIs.width13,
+                SizedBox(width: ServerCardSizes.aside, child: aside),
               ],
-            )),
-            UIs.width7,
-            const Icon(Icons.keyboard_arrow_right, color: Colors.grey),
-          ],
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [...metrics, UIs.height13, aside],
+            ),
         ),
       ),
     );
   }
 
-  Widget _buildPve(_) {
-    final addr = widget.spi.custom?.pveAddr;
-    if (addr == null) return UIs.placeholder;
-    return CardX(
-      child: ListTile(
-        title: const Text('PVE'),
-        leading: const Icon(FontAwesome.server_solid, size: 17),
-        trailing: const Icon(Icons.chevron_right),
-        onTap: () => AppRoutes.pve(spi: widget.spi).go(context),
+  /// What the machine is, beside what it is doing.
+  ///
+  /// Two cards rather than one: the About rows come from the machine and
+  /// change (uptime, the delay), the Hardware ones are what it is built of and
+  /// do not. Kept out of the metric rows entirely, where they would be the
+  /// only lines that never move.
+  List<Widget> _buildInfoCards(ServerState srv) {
+    final about = ServerDetailInfoCard.aboutRows(srv);
+    final hardware = ServerDetailInfoCard.hardwareRows(srv);
+
+    return [
+      // Still the About card the setting knows by name: an install that
+      // switched it off keeps it off, and the switch is still in settings to
+      // put it back.
+      if (about.isNotEmpty && !_cardsOff.contains(ServerDetailCards.about.name))
+        ServerDetailInfoCard(
+          icon: MingCute.information_fill,
+          title: libL10n.about,
+          rows: about,
+        ),
+      if (hardware.isNotEmpty)
+        ServerDetailInfoCard(
+          icon: Icons.developer_board,
+          title: l10n.hardware,
+          rows: hardware,
+        ),
+    ];
+  }
+
+  CustomAppBar _buildAppBar(ServerState srv) {
+    // At the root of a detail pane there is nothing to pop, so no back button
+    // is drawn and there is no way to hand the width back to the list. Null
+    // everywhere else, where the implicit back button is the way out.
+    final closeDetail = PaneScope.closeDetailOf(context);
+    return CustomAppBar(
+      leading: closeDetail == null
+          ? null
+          : IconButton(
+              icon: const Icon(Icons.close),
+              tooltip: libL10n.close,
+              onPressed: closeDetail,
+            ),
+      // Where the card's name lands when this page was pushed from it; hosted
+      // in the tab, the card grew into the page and nothing flies.
+      title: ServerNameHero(
+        id: srv.spi.id,
+        enabled: !widget.bare,
+        child: Text(
+          srv.spi.name,
+          style: TextStyle(
+            fontSize: 20,
+            color: context.isDark ? Colors.white : Colors.black,
+          ),
+        ),
       ),
+      actions: [
+        for (final action in ServerPageAction.of(
+          context,
+          srv.spi,
+          onDeleted: context.pop,
+        ))
+          IconButton(
+            icon: Icon(action.icon),
+            tooltip: action.label,
+            onPressed: action.onTap,
+          ),
+      ],
     );
   }
 
-  Widget _buildCustom(ServerStatus ss) {
-    if (ss.customCmds.isEmpty) return UIs.placeholder;
-    return CardX(
-      child: ExpandTile(
-        leading: const Icon(MingCute.command_line, size: 17),
-        title: Text(l10n.customCmd),
-        initiallyExpanded: _getInitExpand(ss.customCmds.length),
-        children: ss.customCmds.entries.map(_buildCustomItem).toList(),
-      ),
-    );
-  }
+  /// The large image at the top of a server's page, as published.
+  ///
+  /// **Not tinted, and that is the difference from the mark.** The small one
+  /// beside a server's name in a list is drawn in the row's colour, because a
+  /// column of full-colour logos at the size of a line of text reads as noise
+  /// (`DistIconOf`). Here there is one image, at a size where the colours are
+  /// what makes it recognisable, and nothing to be consistent with.
+  ///
+  /// The consequence is worth keeping in mind before unifying the two: what
+  /// may be drawn here is a wider set than what may be drawn there. Recolouring
+  /// is a modification, and at least one project — Rocky Linux — forbids
+  /// altering its mark "in any way", which is why no mark ships for it.
+  ///
+  /// Its height is stated in [ServerCardSizes], because the card that grows
+  /// into this page keeps the image's room without drawing it.
+  Widget? _buildLogo(ServerState srv) {
+    final logoUrl = srv.getLogoUrl(context);
+    // Null, not an empty placeholder: the wrapping Padding was laid out either
+    // way, leaving a band of dead space above the first card on every server
+    // without a logo configured.
+    if (logoUrl == null) return null;
 
-  Widget _buildCustomItem(MapEntry<String, String> cmd) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 7),
-      child: KvRow(
-        k: cmd.key,
-        v: cmd.value,
-        vBuilder: () {
-          if (!cmd.value.contains('\n')) return null;
-          return GestureDetector(
-            onTap: () {
-              context.showRoundDialog(
-                title: cmd.key,
-                child: SingleChildScrollView(
-                  child: Text(cmd.value, style: UIs.text13Grey),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => context.pop(),
-                    child: Text(l10n.close),
-                  ),
-                ],
-              );
-            },
-            child: const Icon(
-              Icons.info_outline,
-              size: 17,
-              color: Colors.grey,
+      padding: const EdgeInsets.symmetric(vertical: ServerCardSizes.logoPad),
+      child: LayoutBuilder(
+        builder: (_, cons) {
+          // A share of the width, capped, and the width comes down with the
+          // cap. Without the cap the image is a band as wide as its column
+          // and a third of it tall: in two columns that is `aside` and fine,
+          // but in one it is the whole window — widest on the machines where
+          // the picture is least worth the room. Without the width following
+          // the cap, the box stays a band and the `fit` inside it centres a
+          // small image in a large empty one.
+          final height = math.min(
+            cons.maxWidth * ServerCardSizes.logoHeightRatio,
+            ServerCardSizes.logoMaxHeight,
+          );
+          final width = math.min(
+            cons.maxWidth,
+            height / ServerCardSizes.logoHeightRatio,
+          );
+          return SizedBox(
+            width: cons.maxWidth,
+            child: Center(
+              child: SizedBox(
+                width: width,
+                height: height,
+                child: logoUrl.isSvgUrl
+                    ? SvgPicture.network(
+                        logoUrl,
+                        fit: BoxFit.contain,
+                        // Named for the reader that speaks the page aloud.
+                        semanticsLabel: srv.spi.name,
+                      )
+                    : ExtendedImage(
+                        image: serverLogoImage(
+                          ExtendedNetworkImageProvider(logoUrl, cache: true),
+                          width: width,
+                          height: height,
+                          devicePixelRatio: MediaQuery.devicePixelRatioOf(
+                            context,
+                          ),
+                        ),
+                        // As `ExtendedImage.network` has it: the failure
+                        // below is drawn by `loadStateChanged`.
+                        enableLoadState: true,
+                        clearMemoryCacheWhenDispose: true,
+                        fit: BoxFit.contain,
+                        // The outline rather than a broken-image box, which is
+                        // what a 404 reads as: GitHub answers a missing file
+                        // with an HTML page, and the decoder has nothing to
+                        // say about why.
+                        loadStateChanged: (state) => switch (state
+                            .extendedImageLoadState) {
+                          LoadState.failed => Center(
+                            child: Icon(
+                              Icons.image_not_supported_outlined,
+                              size: height * 0.4,
+                              color: Theme.of(context).disabledColor,
+                            ),
+                          ),
+                          _ => null,
+                        },
+                      ),
+              ),
             ),
           );
         },
       ),
     );
   }
+}
 
-  Widget _buildAnimatedText(Key key, String text, TextStyle style) {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 277),
-      child: Text(
-        key: key,
-        text,
-        style: style,
-        textScaler: _textFactor,
-      ),
-      transitionBuilder: (child, animation) => FadeTransition(
-        opacity: animation,
-        child: child,
-      ),
-    );
-  }
+/// [source] decoded no larger than a [width] by [height] box, in proportion.
+///
+/// `ResizeImagePolicy.fit`, not the default `exact` — Flutter's own words
+/// for that are "the output image will have the specified width and height
+/// regardless of whether it matches the source image's intrinsic aspect
+/// ratio", i.e. `BoxFit.fill`. A published logo is whatever shape its
+/// project drew: Debian's is a 1460x1935 portrait, which `exact` stretched to
+/// four times its width. Both dimensions bound it: the URL is the user's, and
+/// one bound alone lets a tall image decode as tall as it is.
+@visibleForTesting
+ImageProvider serverLogoImage(
+  ImageProvider source, {
+  required double width,
+  required double height,
+  required double devicePixelRatio,
+}) => ExtendedResizeImage(
+  source,
+  width: math.max(1, (width * devicePixelRatio).round()),
+  height: math.max(1, (height * devicePixelRatio).round()),
+  policy: ResizeImagePolicy.fit,
+  // Bounded by the box alone: a byte budget would shrink it again.
+  maxBytes: null,
+);
 
-  bool _getInitExpand(int len, [int? max]) {
-    if (!_collapse) return true;
-    return len <= (max ?? 3);
+extension _ViewUtils on String {
+  bool get isSvgUrl {
+    final uri = Uri.tryParse(this);
+    final path = uri?.path.toLowerCase() ?? toLowerCase();
+    return path.endsWith('.svg');
   }
 }

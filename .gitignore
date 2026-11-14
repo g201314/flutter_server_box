@@ -8,6 +8,7 @@
 .buildlog/
 .history
 .svn/
+node_modules/
 
 # IntelliJ related
 *.iml
@@ -15,10 +16,7 @@
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+.vscode/
 
 # Flutter/Dart/Pub related
 **/doc/api/
@@ -30,6 +28,14 @@
 .pub-cache/
 .pub/
 /build/
+ios/build/
+android/build/
+windows/build/
+linux/build/
+macos/build/
+# `make coverage` output. Was committed once and then went stale for a year,
+# naming files that have since moved.
+/coverage/
 
 # Web related
 lib/generated_plugin_registrant.dart
@@ -46,6 +52,8 @@ app.*.map.json
 /android/app/release
 
 /android/app/fjy.androidstudio.key
+# TODO: remove with the old plaintext signing files.
+/android/app/app.key
 /release
 test.dart
 
@@ -59,8 +67,48 @@ test.dart
 linux.AppDir
 **/*.AppImage
 
-untranlated.json
+untranslated.json
 
-.vscode/settings.json
+# Per-developer overrides merged into BuildData by fl_build's updateBuildData().
+# Optional by design, so a committed one silently changes every build made from
+# that checkout.
 more_build_data.json
+
 trans.txt
+android/app/.cxx
+.env.release
+.env
+
+# Rust workspace
+/target/
+/target-alpine/
+
+# Runtime artifacts of a locally-run monitor agent. `monitor/.gitignore`
+# already covers these when it runs from its own directory; these rules catch
+# the case where it was started from the repo root instead.
+/config.toml
+/jwt.secret
+
+# SQLite databases (monitor's metrics store, and anything else local)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Agent scratch space: worktrees here are checkouts of this same repo.
+.claude/worktrees/
+# Widget Preview related
+.widget_preview/
+
+# proot built ahead of the build for F-Droid (packages/fl_tty/scripts/build-proot-android.sh).
+/build/proot-android/
+/.fdroid-cache/
+
+# The working scratchpad for what is not done yet. Kept on disk, out of the
+# history: it churns every session, and what belongs in the repo is the TODO
+# beside the code it is about.
+/TODOS.md
+
+# Written by the website build from store/ (scripts/store-tarball.sh).
+website/public/store.tar.gz

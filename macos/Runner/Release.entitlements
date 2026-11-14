@@ -14,11 +14,18 @@
 	<array>
 		<string>iCloud.tech.lolli.serverbox</string>
 	</array>
+	<!-- Off: a sandboxed process cannot open a pseudo-terminal's slave device,
+	     so the local terminal would not work — measured: `Process.run` succeeds,
+	     `forkpty`'s child exits 255 before it can exec, and no entitlement changes
+	     it. iCloud is unaffected: verified unsandboxed, the ubiquity container
+	     resolves and an upload/list/delete round trip works. -->
 	<key>com.apple.security.app-sandbox</key>
-	<true/>
+	<false/>
 	<key>com.apple.security.network.client</key>
 	<true/>
 	<key>com.apple.security.network.server</key>
 	<true/>
+	<key>keychain-access-groups</key>
+	<array/>
 </dict>
 </plist>

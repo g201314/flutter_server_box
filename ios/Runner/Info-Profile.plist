@@ -2,8 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 	<dict>
+		<key>AppIdentifierPrefix</key>
+		<string>$(AppIdentifierPrefix)</string>
 		<key>CADisableMinimumFrameDurationOnPhone</key>
 		<true/>
+		<key>NSPrincipalClass</key>
+		<string>SBApplication</string>
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleExecutable</key>
@@ -17,6 +21,8 @@
 			<string>en</string>
 			<string>zh</string>
 		</array>
+		<key>NSSupportsLiveActivities</key>
+		<true/>
 		<key>CFBundleName</key>
 		<string>ServerBox</string>
 		<key>CFBundlePackageType</key>
@@ -31,10 +37,91 @@
 		<false/>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
+		<!-- Off, or Flutter pushes every link it sees as a route name onto a
+		     navigator that has no generator for one. `IncomingShare` takes
+		     links in instead. -->
+		<key>FlutterDeepLinkingEnabled</key>
+		<false/>
+		<!-- `serverbox://` links: see `AppLink` in lib/data/model/app/app_link.dart. -->
+		<key>CFBundleURLTypes</key>
+		<array>
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Viewer</string>
+				<key>CFBundleURLName</key>
+				<string>tech.lolli.toolbox</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>serverbox</string>
+				</array>
+			</dict>
+		</array>
+		<key>CFBundleDocumentTypes</key>
+		<array>
+			<dict>
+				<key>CFBundleTypeName</key>
+				<string>ServerBox Shared Server</string>
+				<key>CFBundleTypeRole</key>
+				<string>Viewer</string>
+				<key>LSHandlerRank</key>
+				<string>Owner</string>
+				<key>LSItemContentTypes</key>
+				<array>
+					<string>tech.lolli.serverbox.share</string>
+				</array>
+			</dict>
+		</array>
+		<key>UTExportedTypeDeclarations</key>
+		<array>
+			<dict>
+				<key>UTTypeIdentifier</key>
+				<string>tech.lolli.serverbox.share</string>
+				<key>UTTypeDescription</key>
+				<string>ServerBox Shared Server</string>
+				<key>UTTypeConformsTo</key>
+				<array>
+					<string>public.plain-text</string>
+				</array>
+				<key>UTTypeTagSpecification</key>
+				<dict>
+					<key>public.filename-extension</key>
+					<array>
+						<string>sbxsrv</string>
+					</array>
+				</dict>
+			</dict>
+		</array>
 		<key>LSSupportsOpeningDocumentsInPlace</key>
+		<true/>
+		<key>UIFileSharingEnabled</key>
 		<true/>
 		<key>UIApplicationSupportsIndirectInputEvents</key>
 		<true/>
+		<key>UIApplicationSceneManifest</key>
+		<dict>
+			<key>UIApplicationSupportsMultipleScenes</key>
+			<false/>
+			<key>UISceneConfigurations</key>
+			<dict>
+				<key>UIWindowSceneSessionRoleApplication</key>
+				<array>
+					<dict>
+						<key>UISceneClassName</key>
+						<string>UIWindowScene</string>
+						<key>UISceneDelegateClassName</key>
+						<!-- A subclass, so this app can see the URLs it is opened with:
+						     in a scene-based app the app delegate's `application(_:open:)`
+						     is never called. See ios/Runner/SceneDelegate.swift. The bare
+						     name is what `@objc(SceneDelegate)` registers. -->
+						<string>SceneDelegate</string>
+						<key>UISceneConfigurationName</key>
+						<string>flutter</string>
+						<key>UISceneStoryboardFile</key>
+						<string>Main</string>
+					</dict>
+				</array>
+			</dict>
+		</dict>
 		<key>UIBackgroundModes</key>
 		<array>
 			<string>fetch</string>
@@ -64,9 +151,14 @@
 		<array>
 			<string>_dartobservatory._tcp</string>
 		</array>
+
 		<key>NSLocalNetworkUsageDescription</key>
-		<string>ServerBox needs to access your local network to discover and connect to your server.</string>
+		<string>Access your local network to discover and connect to your server.</string>
 		<key>NSFaceIDUsageDescription</key>
-		<string>Required for auth</string>
+		<string>ServerBox uses Face ID to unlock the app.</string>
+		<key>NSCameraUsageDescription</key>
+		<string>ServerBox uses the camera to scan a shared server QR code or take a photo to attach to an Agent message.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>ServerBox reads the photo you choose to attach to an Agent message.</string>
 	</dict>
 </plist>

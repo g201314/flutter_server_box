@@ -1,64 +1,31 @@
-import 'package:toolbox/data/model/server/server.dart';
-import 'package:toolbox/data/model/server/temp.dart';
-
-import '../model/server/cpu.dart';
-import '../model/server/disk.dart';
-import '../model/server/memory.dart';
-import '../model/server/net_speed.dart';
-import '../model/server/conn.dart';
-import '../model/server/system.dart';
+import 'package:server_box/data/model/server/server.dart';
+import 'package:server_box/data/model/server/status/conn.dart';
+import 'package:server_box/data/model/server/status/cpu.dart';
+import 'package:server_box/data/model/server/status/disk.dart';
+import 'package:server_box/data/model/server/status/memory.dart';
+import 'package:server_box/data/model/server/status/net_speed.dart';
+import 'package:server_box/data/model/server/status/temp.dart';
+import 'package:server_box/data/model/server/system.dart';
 
 abstract final class InitStatus {
-  static SingleCpuCore get _initOneTimeCpuStatus => SingleCpuCore(
-        'cpu',
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-      );
-  static Cpus get cpus => Cpus(
-        [_initOneTimeCpuStatus],
-        [_initOneTimeCpuStatus],
-      );
-  static NetSpeedPart get _initNetSpeedPart => NetSpeedPart(
-        '',
-        BigInt.zero,
-        BigInt.zero,
-        0,
-      );
-  static NetSpeed get netSpeed => NetSpeed(
-        [_initNetSpeedPart],
-        [_initNetSpeedPart],
-      );
+  /// Total 0 is no reading.
+  static const Memory mem = Memory(total: 0, free: 0, avail: 0);
+
+  // The time series start out genuinely empty. They used to be seeded with two
+  // synthetic all-zero samples so `pre`/`now` would never throw, which made
+  // the first reading a delta against invented data.
+  static Cpus get cpus => Cpus();
+  static NetSpeed get netSpeed => NetSpeed();
   static ServerStatus get status => ServerStatus(
-        cpu: cpus,
-        mem: const Memory(
-          total: 1,
-          free: 1,
-          avail: 1,
-        ),
-        disk: [
-          Disk(
-            fs: '/',
-            mount: '/',
-            usedPercent: 0,
-            used: BigInt.zero,
-            size: BigInt.one,
-            avail: BigInt.zero,
-          )
-        ],
-        tcp: const Conn(maxConn: 0, active: 0, passive: 0, fail: 0),
-        netSpeed: netSpeed,
-        swap: const Swap(
-          total: 0,
-          free: 0,
-          cached: 0,
-        ),
-        system: SystemType.linux,
-        temps: Temperatures(),
-        diskIO: DiskIO([], []),
-      );
+    cpu: cpus,
+    mem: mem,
+    disk: const [],
+    tcp: const Conn(maxConn: 0, fail: 0),
+    netSpeed: netSpeed,
+    swap: const Swap(total: 0, free: 0, cached: 0),
+    system: SystemType.linux,
+    temps: Temperatures(),
+    diskIO: DiskIO(),
+    diskSmart: const [],
+  );
 }

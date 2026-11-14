@@ -1,2 +1,16 @@
 #include "../../Flutter/Flutter-Release.xcconfig"
 #include "Warnings.xcconfig"
+
+// A default only: every release build names its architecture, and command-line
+// build settings take precedence over xcconfig values.
+// scripts/release/release-macos-dmg.sh passes `ARCHS=` for each DMG, and macOS
+// CI sets `FLUTTER_XCODE_ARCHS`, which `flutter build macos` forwards. A plain
+// local release build is thin arm64 rather than universal.
+//
+// Kept here rather than as `flutter config --enable-macos-arm64-only`, which is
+// machine-local and lives outside the checkout.
+//
+// ARCHS also selects the Rust crate's architecture. Xcode passes its value to
+// the build hook as `-dDarwinArchs`, ensuring that a thin app contains a thin
+// sbm_ffi.framework.
+ARCHS = arm64
